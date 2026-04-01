@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 from camera_bridge import CameraBridge, MockCameraBridge
@@ -16,7 +17,20 @@ def main():
     parser.add_argument("--log-dir", type=str, default="logs_context")
     args = parser.parse_args()
 
-    logger = JsonlLogger(log_dir=args.log_dir, run_name="context_agent_run")
+    # Keep logs in a stable location relative to this script when a relative path is passed.
+    resolved_log_dir = args.log_dir
+    if not os.path.isabs(resolved_log_dir):
+        resolved_log_dir = os.path.join(os.path.dirname(__file__), resolved_log_dir)
+
+    logger = JsonlLogger(log_dir=resolved_log_dir, run_name="context_agent_run")
+    logger.log_event(
+        "run_started",
+        {
+            "mock": args.mock,
+            "camera_index": args.camera_index,
+            "log_dir": resolved_log_dir,
+        },
+    )
 
     if args.mock:
         camera = MockCameraBridge()
@@ -35,6 +49,15 @@ def main():
         min_confidence=0.55,
         speech_enabled=True,
     )
+    logger.log_event(
+        "agent_config",
+        {
+            "step_interval_sec": config.step_interval_sec,
+            "cooldown_sec": config.cooldown_sec,
+            "min_confidence": config.min_confidence,
+            "speech_enabled": config.speech_enabled,
+        },
+    )
 
     agent = ContextAgent(
         tools=tools,
@@ -49,8 +72,10 @@ def main():
             time.sleep(config.step_interval_sec)
     except KeyboardInterrupt:
         print("\n[Main] Stopping context agent...")
+        logger.log_event("run_stopped", {"reason": "keyboard_interrupt"})
     finally:
         camera.stop()
+        logger.log_event("run_finished", {"status": "camera_stopped"})
 
 
 if __name__ == "__main__":
