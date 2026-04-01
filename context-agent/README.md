@@ -8,8 +8,6 @@ This agent is designed to complement a body-based posture agent (IMU + vibration
 
 Together, they form a foundation for **multi-agent embodied interaction**, where different agents perceive different aspects of the world and coordinate their actions.
 
----
-
 ## **What It Does**
 
 At a high level, the context agent runs a continuous loop:
@@ -24,8 +22,6 @@ More specifically, it:
 - Decides whether it is appropriate to intervene
 - Delivers a short spoken reminder via TTS
 - Enforces a cooldown period to avoid repeated interruptions
-
----
 
 ## **System Architecture**
 
@@ -56,8 +52,6 @@ Maintains internal state and decides:
 
 Outputs voice feedback using text-to-speech.
 
----
-
 ## **Code Structure**
 
 ```text
@@ -72,8 +66,6 @@ python/
 └── logger.py            # JSONL logging (shared with body agent)
 ```
 
----
-
 ## **How to Run**
 
 ### 1. Install dependencies
@@ -81,8 +73,6 @@ python/
 ```bash
 pip install opencv-python pyttsx3
 ```
-
----
 
 ### 2. Run with mock context (recommended first)
 
@@ -103,8 +93,6 @@ You should see logs like:
 [VOICE] You seem to be working at your desk...
 ```
 
----
-
 ### 3. Run with real camera
 
 ```bash
@@ -112,8 +100,6 @@ python main_context.py --camera-index 0
 ```
 
 Note: the default `scene_features.py` is a placeholder, so real camera mode will likely output `"unknown"` until you plug in a real vision model.
-
----
 
 ## **Current Context Inference (MVP)**
 
@@ -123,8 +109,6 @@ The current implementation uses:
 - A placeholder inference function (`infer_context_from_frame`)
 
 This is intentionally simple to ensure the full agent loop runs end-to-end.
-
----
 
 ## **Upgrading Context Recognition**
 
@@ -147,8 +131,6 @@ Compare image embeddings with prompts like:
 - Generate image captions
 - Map captions to context labels
 
----
-
 ## **Agent Behavior**
 
 The context agent is **not a simple trigger system**. It maintains:
@@ -164,8 +146,6 @@ It only speaks when:
 - the context suggests the user is relatively stationary
 - it is not in cooldown
 
----
-
 ## **Example Behavior**
 
 | Scene     | Behavior                         |
@@ -174,8 +154,6 @@ It only speaks when:
 | kitchen   | give lighter reminder            |
 | walking   | do nothing                       |
 | unknown   | observe only                     |
-
----
 
 ## **Logging**
 
@@ -200,8 +178,6 @@ This enables:
 - evaluation
 - visualization
 
----
-
 ## **Relationship to Body Agent**
 
 The context agent is designed to work alongside a posture (body) agent.
@@ -210,8 +186,6 @@ The context agent is designed to work alongside a posture (body) agent.
 | ------------- | ------ | --------- | --------------------- |
 | Body Agent    | IMU    | vibration | physical correction   |
 | Context Agent | camera | speech    | situational awareness |
-
----
 
 ## **Future: Agent-to-Agent Coordination (A2A)**
 
@@ -227,8 +201,6 @@ Example:
 - Context agent detects user is in a meeting-like setting
   → choose **vibration instead of speech**
 
----
-
 ## **Why This Is an Agent (Not Just a Program)**
 
 Unlike a simple rule-based system, this agent:
@@ -239,8 +211,6 @@ Unlike a simple rule-based system, this agent:
 - adapts behavior based on recent history
 
 This makes it a minimal but complete example of an **embodied context-aware agent**.
-
----
 
 ## **Next Steps**
 
