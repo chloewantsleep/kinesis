@@ -99,6 +99,19 @@
   .event.discussion.question { border-left-color: #56b6c2; }
   .event.discussion.reply { border-left-color: #98c379; }
 
+  /* Sensor log */
+  .sensor-log-section { margin-bottom: 24px; }
+  .sensor-log { background: #111; border: 1px solid #222; height: 160px; overflow-y: auto; padding: 6px 8px; font-size: 0.7em; line-height: 1.5; color: #666; }
+  .sensor-log::-webkit-scrollbar { width: 3px; }
+  .sensor-log::-webkit-scrollbar-thumb { background: #333; }
+  .sensor-log::-webkit-scrollbar-track { background: #111; }
+  .sensor-log .log-line { border-bottom: 1px solid #1a1a1a; padding: 2px 0; }
+  .sensor-log .log-time { color: #444; }
+  .sensor-log .log-label { color: #56b6c2; font-weight: 700; }
+  .sensor-log .log-conf { color: #e5c07b; }
+  .sensor-log .log-scores { color: #555; }
+  .sensor-log .log-empty { color: #333; text-transform: uppercase; letter-spacing: 1px; padding: 8px 0; text-align: center; }
+
   /* Empty state */
   .empty { text-align: center; color: #333; padding: 60px 0; font-size: 0.85em; text-transform: uppercase; letter-spacing: 2px; }
   .empty .dot-anim { display: inline-block; animation: pulse 1.5s ease-in-out infinite; }
@@ -157,6 +170,13 @@
     <div class="filter-item" data-agent="system">
       <input type="checkbox" id="filter-system" checked>
       <label for="filter-system">System</label>
+    </div>
+  </div>
+
+  <div class="sidebar-section sensor-log-section">
+    <h3>Sensor Log</h3>
+    <div class="sensor-log" id="sensor-log">
+      <div class="log-empty">No sensor data</div>
     </div>
   </div>
 </aside>
@@ -348,6 +368,9 @@ function handleState(entry) {
       detail: `trigger: ${data.trigger || '?'}`,
     });
   }
+  else if (did === 'glasses' && key === 'sensor_log') {
+    appendSensorLog(data);
+  }
   else if (did === 'glasses' && key === 'data_source') {
     const mode = data.mode || 'mock';
     toggleCamera.checked = mode === 'camera';
@@ -403,6 +426,46 @@ function updateChips() {
   }
 }
 setInterval(updateChips, 2000);
+
+// --- Sensor log ---
+const sensorLog = document.getElementById('sensor-log');
+let sensorLogFirstEntry = true;
+
+function appendSensorLog(data) {
+  if (sensorLogFirstEntry) { sensorLog.innerHTML = ''; sensorLogFirstEntry = false; }
+
+  const line = document.createElement('div');
+  line.className = 'log-line';
+
+  const t = new Date().toLocaleTimeString();
+  const label = data.scene_label || '?';
+  const conf = ((data.confidence || 0) * 100).toFixed(0);
+  const prompt = data.top_prompt || '';
+
+  // Build score bar for each label
+  let scoresHTML = '';
+  if (data.scores_by_label) {
+    const sorted = Object.entries(data.scores_by_label).sort((a, b) => b[1] - a[1]);
+    scoresHTML = sorted.map(([l, s]) => {
+      const pct = (s * 100).toFixed(0);
+      const highlight = l === label ? 'color:#56b6c2' : '';
+      return `<span style="${highlight}">${l}:${pct}%</span>`;
+    }).join(' ');
+  }
+
+  line.innerHTML =
+    `<span class="log-time">${t}</span> ` +
+    `<span class="log-label">${label}</span> ` +
+    `<span class="log-conf">${conf}%</span>` +
+    (scoresHTML ? `<br><span class="log-scores">${scoresHTML}</span>` : '') +
+    (prompt ? `<br><span class="log-scores">${prompt}</span>` : '');
+
+  sensorLog.appendChild(line);
+  sensorLog.scrollTop = sensorLog.scrollHeight;
+
+  // Keep max 50 entries
+  while (sensorLog.children.length > 50) sensorLog.removeChild(sensorLog.firstChild);
+}
 
 connectSSE();
 

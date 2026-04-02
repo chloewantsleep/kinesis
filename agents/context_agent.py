@@ -209,8 +209,8 @@ class ContextAgent:
         self._inferencer = CLIPContextInferencer(model_name=self._clip_model)
         logger.info("Camera + CLIP ready")
 
-    def _camera_to_scene_context(self) -> SceneContext:
-        """Read a frame from the real camera, run CLIP, return SceneContext."""
+    def _camera_to_scene_context(self) -> tuple[SceneContext, dict]:
+        """Read a frame from the real camera, run CLIP, return (SceneContext, raw_clip_result)."""
         frame, ts = self._camera.get_latest_frame()
         result = self._inferencer.infer(frame)
 
@@ -218,13 +218,14 @@ class ContextAgent:
         scene_type = CLIP_LABEL_TO_SCENE.get(scene_label, SceneType.UNKNOWN)
         confidence = result.get("confidence", 0.0)
 
-        return SceneContext(
+        ctx = SceneContext(
             scene=scene_type,
             confidence=confidence,
             social=False,  # CLIP doesn't detect social context yet
             ambient_noise_db=0.0,  # no audio sensor yet
             timestamp=ts or time.time(),
         )
+        return ctx, result
 
     async def _check_data_source(self, session: ClientSession) -> str:
         """Read the data_source toggle from the blackboard (set by dashboard)."""
@@ -273,8 +274,9 @@ class ContextAgent:
                 active_mode = requested_mode
 
             # Read from active source
+            clip_result = None
             if active_mode == "camera" and self._camera is not None:
-                scene_ctx = await asyncio.to_thread(self._camera_to_scene_context)
+                scene_ctx, clip_result = await asyncio.to_thread(self._camera_to_scene_context)
                 gaze = None
             else:
                 scene_ctx = await mock_scene.read()
@@ -285,6 +287,8 @@ class ContextAgent:
 
             # Write to blackboard
             await self._safe_update(session, "context", scene_ctx.to_dict(), scene_ctx.confidence)
+            if clip_result is not None:
+                await self._safe_update(session, "sensor_log", clip_result, scene_ctx.confidence)
             if gaze is not None:
                 await self._safe_update(session, "gaze", gaze.to_dict(), gaze.confidence)
 
