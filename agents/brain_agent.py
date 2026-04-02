@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
-DEFAULT_LOOP_INTERVAL_S = 25.0
+DEFAULT_LOOP_INTERVAL_S = 30.0
 MAX_HISTORY = 20
 MAX_TOOL_ROUNDS = 5
 

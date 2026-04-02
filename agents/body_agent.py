@@ -53,12 +53,12 @@ def _deviation_to_posture(dev_deg: float) -> PostureClass:
     else:
         return PostureClass.LEANING_LEFT if abs_dev < 20 else PostureClass.LEANING_RIGHT
 
-# Scripted demo: good(10s) → slouching(25s) → good(10s) → hunched(25s) → repeat
+# Scripted demo: good(20s) → slouching(40s) → good(15s) → hunched(35s) → repeat
 DEMO_POSTURE_TIMELINE = [
-    (10.0, PostureReading(PostureClass.GOOD, 0.9, 10.0, 3.0)),
-    (25.0, PostureReading(PostureClass.SLOUCHING, 0.85, 25.0, 18.0)),
-    (10.0, PostureReading(PostureClass.GOOD, 0.9, 10.0, 2.5)),
-    (25.0, PostureReading(PostureClass.HUNCHED, 0.88, 25.0, 22.0)),
+    (20.0, PostureReading(PostureClass.GOOD, 0.9, 20.0, 3.0)),
+    (40.0, PostureReading(PostureClass.SLOUCHING, 0.85, 40.0, 18.0)),
+    (15.0, PostureReading(PostureClass.GOOD, 0.9, 15.0, 2.5)),
+    (35.0, PostureReading(PostureClass.HUNCHED, 0.88, 35.0, 22.0)),
 ]
 
 logger = logging.getLogger(__name__)
@@ -69,10 +69,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
 SENSOR_INTERVAL_S = 0.5
-LLM_COOLDOWN_S = 20.0
-BAD_POSTURE_THRESHOLD_S = 10.0
+LLM_COOLDOWN_S = 30.0
+BAD_POSTURE_THRESHOLD_S = 20.0
 HIGH_TENSION_THRESHOLD = 0.8
-HIGH_TENSION_DURATION_S = 8.0
+HIGH_TENSION_DURATION_S = 10.0
 MAX_TOOL_ROUNDS = 5
 
 # ---------------------------------------------------------------------------
