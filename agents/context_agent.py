@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
-SENSOR_INTERVAL_S = 2.0
+SENSOR_INTERVAL_S = 3.0
 LLM_COOLDOWN_S = 15.0
 MAX_TOOL_ROUNDS = 5
 
