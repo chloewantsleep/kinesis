@@ -171,16 +171,16 @@ class GazeReading:
 
 
 # ---------------------------------------------------------------------------
-# Coach / planner outputs
+# Planner outputs
 # ---------------------------------------------------------------------------
 
 @dataclass
-class CoachingPlan:
+class PlannerStrategy:
     mode: InterventionMode
     attention_budget_remaining: int  # interventions left today
     active_chain: Optional[str]  # habit chain name or None
     chain_step: int  # 0 if no chain active
-    message: str  # latest coaching text for user
+    message: str  # latest planner text for user
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
@@ -194,7 +194,7 @@ class CoachingPlan:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> CoachingPlan:
+    def from_dict(cls, d: dict[str, Any]) -> PlannerStrategy:
         return cls(
             mode=InterventionMode(d["mode"]),
             attention_budget_remaining=d["attention_budget_remaining"],

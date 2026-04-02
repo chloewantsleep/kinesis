@@ -8,7 +8,7 @@ Usage:
     python shared_state_server.py           # Terminal 1: blackboard + dashboard
     python agents/context_agent.py          # Terminal 2: glasses/context
     python agents/body_agent.py             # Terminal 3: body/posture
-    python agents/brain_agent.py            # Terminal 4: coach/planner
+    python agents/brain_agent.py            # Terminal 4: planner
 
     # Dashboard: http://localhost:8080
 """
@@ -52,7 +52,7 @@ def main():
     agent_commands = [
         ("Context Agent (Glasses)", [PYTHON, str(KINESIS_DIR / "agents" / "context_agent.py"), "--demo"]),
         ("Body Agent (Kinesess)", [PYTHON, str(KINESIS_DIR / "agents" / "body_agent.py"), "--demo"]),
-        ("Brain Agent (Coach)", [PYTHON, str(KINESIS_DIR / "agents" / "brain_agent.py"), "--interval", "30"]),
+        ("Planner Agent", [PYTHON, str(KINESIS_DIR / "agents" / "brain_agent.py"), "--interval", "30"]),
     ]
 
     for name, cmd in agent_commands:

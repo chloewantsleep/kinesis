@@ -126,7 +126,7 @@
   <div class="agents">
     <div class="agent-chip" data-agent="kinesess" id="chip-kinesess">Body</div>
     <div class="agent-chip" data-agent="glasses" id="chip-glasses">Context</div>
-    <div class="agent-chip" data-agent="brain" id="chip-brain">Coach</div>
+    <div class="agent-chip" data-agent="brain" id="chip-brain">Planner</div>
   </div>
 </header>
 
@@ -166,7 +166,7 @@
     </div>
     <div class="filter-item" data-agent="brain">
       <input type="checkbox" id="filter-brain" checked>
-      <label for="filter-brain">Coach</label>
+      <label for="filter-brain">Planner</label>
     </div>
     <div class="filter-item" data-agent="system">
       <input type="checkbox" id="filter-system" checked>
@@ -253,7 +253,7 @@ function addEvent(opts) {
 function agentName(id) {
   if (id === 'kinesess') return 'Body Agent';
   if (id === 'glasses') return 'Context Agent';
-  if (id === 'brain') return 'Coach';
+  if (id === 'brain') return 'Planner';
   return id;
 }
 
@@ -400,7 +400,7 @@ function handleState(entry) {
   else if (did === 'brain' && key === 'mode') {
     const mode = data.mode || 'normal';
     document.getElementById('ctx-mode').textContent = mode;
-    addEvent({ agent: 'brain', type: 'decision', message: `Coaching mode set to <strong>${mode}</strong>` });
+    addEvent({ agent: 'brain', type: 'decision', message: `Plannering mode set to <strong>${mode}</strong>` });
   }
   else if (did === 'brain' && key === 'attention_budget') {
     document.getElementById('ctx-budget').textContent = data.remaining ?? '--';

@@ -60,7 +60,7 @@ MAX_TOOL_ROUNDS = 5
 # ---------------------------------------------------------------------------
 
 DEFAULT_SYSTEM_PROMPT = """\
-You are the Kinesess body sensor agent — a posture coaching assistant embedded in a wearable device.
+You are the Kinesess body sensor agent — a posture correction assistant embedded in a wearable device.
 
 ## Your Role
 You interpret body sensor data (posture classification, muscle tension) and decide when to fire haptic interventions. You are called ONLY when a threshold has been crossed (bad posture sustained 30+ seconds, or high muscle tension).
@@ -244,8 +244,8 @@ class BodyAgent:
             try:
                 system_prompt = await self._load_system_prompt(session)
                 glasses_ctx = await self._read_glasses_context(session)
-                coaching_ctx = await self._read_coaching_context(session)
-                user_msg = self._build_user_message(glasses_ctx, coaching_ctx)
+                planner_ctx = await self._read_planner_context(session)
+                user_msg = self._build_user_message(glasses_ctx, planner_ctx)
 
                 logger.info("LLM triggered: %s", self._local.trigger_reason)
 
@@ -320,7 +320,7 @@ class BodyAgent:
                 pass
         return ctx
 
-    async def _read_coaching_context(self, session: ClientSession) -> dict:
+    async def _read_planner_context(self, session: ClientSession) -> dict:
         ctx: dict = {}
         for uri_key in ["plan", "mode", "attention_budget"]:
             try:
@@ -332,7 +332,7 @@ class BodyAgent:
                 pass
         return ctx
 
-    def _build_user_message(self, glasses_ctx: dict, coaching_ctx: dict) -> str:
+    def _build_user_message(self, glasses_ctx: dict, planner_ctx: dict) -> str:
         p = self._local.last_posture
         t = self._local.last_tension
 
@@ -369,11 +369,11 @@ class BodyAgent:
         if glasses_ctx.get("gaze"):
             glasses_info += f"  Gaze target: {glasses_ctx['gaze'].get('target', 'unknown')}\n"
 
-        coaching_info = f"\nCOACHING CONTEXT:\n{json.dumps(coaching_ctx, indent=2)}\n"
+        planner_info = f"\nPLANNER CONTEXT:\n{json.dumps(planner_ctx, indent=2)}\n"
 
         return (
             f"TRIGGER: {self._local.trigger_reason}\n\n"
-            f"{posture_info}{tension_info}{glasses_info}{coaching_info}\n"
+            f"{posture_info}{tension_info}{glasses_info}{planner_info}\n"
             f"Decide whether to intervene. Consider the scene context. "
             f"If the situation is ambiguous, use ask_agent to consult the glasses agent. "
             f"If you decide to fire a haptic, call send_haptic. If not, explain why briefly."

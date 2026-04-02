@@ -1,6 +1,6 @@
 """Shared State MCP Server — the blackboard for the Kinesis multi-agent system.
 
-All agents (kinesess, glasses, brain/coach) connect here. This server is NOT
+All agents (kinesess, glasses, brain/planner) connect here. This server is NOT
 an agent — it's infrastructure. It stores state, serves it as MCP resources,
 and pushes subscription notifications when state changes.
 
@@ -37,7 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from schemas import (
-    CoachingPlan,
+    PlannerStrategy,
     HapticPattern,
     InterventionMode,
     StateEntry,
@@ -184,7 +184,7 @@ async def _update_and_notify(device_id: str, key: str, data: dict[str, Any], con
 # ---------------------------------------------------------------------------
 
 def _init_defaults() -> None:
-    plan = CoachingPlan(
+    plan = PlannerStrategy(
         mode=InterventionMode.NORMAL,
         attention_budget_remaining=20,
         active_chain=None, chain_step=0,

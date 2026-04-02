@@ -1,7 +1,7 @@
-"""Brain/Coach agent — the strategic planner for the Kinesis coaching system.
+"""Planner agent — the strategic planner for the Kinesis intervention system.
 
 Runs on a 30-second loop, reads all shared state, reasons about patterns with
-Claude, and writes updated coaching strategy back to the blackboard.
+Claude, and writes updated intervention strategy back to the blackboard.
 
 Usage:
     python agents/brain_agent.py
@@ -39,21 +39,21 @@ MAX_HISTORY = 20
 MAX_TOOL_ROUNDS = 5
 
 # ---------------------------------------------------------------------------
-# Coach system prompt
+# Planner system prompt
 # ---------------------------------------------------------------------------
 
-COACH_SYSTEM_PROMPT = """\
-You are the Brain/Coach agent for a wearable posture coaching system. You observe patterns across time and set the coaching strategy that device agents follow.
+PLANNER_SYSTEM_PROMPT = """\
+You are the Planner agent for a wearable posture intervention system. You observe patterns across time and set the intervention strategy that device agents follow.
 
 ## What You Receive
-Every 30 seconds you get a snapshot of ALL shared state (posture, tension, scene context, coaching plan, mode, attention budget) plus a history of recent snapshots.
+Every 30 seconds you get a snapshot of ALL shared state (posture, tension, scene context, intervention plan, mode, attention budget) plus a history of recent snapshots.
 
 ## What You Control
 
 1. **Intervention mode** (`state://brain/mode`):
    - "silent": no haptics (meetings, social)
    - "gentle": minimal intervention
-   - "normal": standard coaching
+   - "normal": standard intervention
    - "aggressive": user ignoring haptics repeatedly
 
 2. **Attention budget** (`state://brain/attention_budget`):
@@ -62,7 +62,7 @@ Every 30 seconds you get a snapshot of ALL shared state (posture, tension, scene
 3. **Device agent prompts** (`state://kinesess/system_prompt`, `state://glasses/system_prompt`):
    - You can rewrite device agents' behavioral prompts. Do this sparingly.
 
-4. **Coaching messages** via `display_overlay`:
+4. **Plannering messages** via `display_overlay`:
    - Brief, encouraging. "Great posture!" / "Quick stretch?"
 
 ## Available Tools
@@ -144,13 +144,13 @@ class BrainAgent:
                 user_msg = self._build_user_message(snapshot)
                 messages: list[dict] = [{"role": "user", "content": user_msg}]
 
-                logger.info("Coach reasoning cycle starting")
+                logger.info("Planner reasoning cycle starting")
 
                 for _ in range(MAX_TOOL_ROUNDS):
                     response = await claude.messages.create(
                         model="claude-sonnet-4-20250514",
                         max_tokens=1024,
-                        system=COACH_SYSTEM_PROMPT,
+                        system=PLANNER_SYSTEM_PROMPT,
                         tools=claude_tools,
                         messages=messages,
                     )
@@ -161,7 +161,7 @@ class BrainAgent:
                     tool_results = []
                     for block in response.content:
                         if block.type == "tool_use":
-                            logger.info("Coach tool: %s(%s)", block.name, json.dumps(block.input)[:200])
+                            logger.info("Planner tool: %s(%s)", block.name, json.dumps(block.input)[:200])
                             result_text = await _execute_tool_call(session, block.name, block.input)
                             tool_results.append({
                                 "type": "tool_result",
@@ -174,12 +174,12 @@ class BrainAgent:
 
                 text_parts = [b.text for b in response.content if hasattr(b, "text")]
                 if text_parts:
-                    logger.info("Coach decision: %s", " ".join(text_parts))
+                    logger.info("Planner decision: %s", " ".join(text_parts))
 
             except anthropic.APIError as e:
                 logger.error("Claude API error: %s", e)
             except Exception as e:
-                logger.error("Coach loop error: %s", e)
+                logger.error("Planner loop error: %s", e)
 
             await asyncio.sleep(self._loop_interval)
 
@@ -219,7 +219,7 @@ class BrainAgent:
             f"RECENT HISTORY ({len(self._history)} observations, last 10 shown):\n"
             f"{history_text}\n\n"
             f"Analyze current state and recent patterns. "
-            f"Update coaching strategy if needed, or confirm current approach is working."
+            f"Update intervention strategy if needed, or confirm current approach is working."
         )
 
 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         format="%(asctime)s %(name)-20s %(levelname)s %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Brain/Coach agent")
+    parser = argparse.ArgumentParser(description="Planner agent")
     parser.add_argument("--server", default=DEFAULT_SERVER_URL)
     parser.add_argument("--interval", type=float, default=DEFAULT_LOOP_INTERVAL_S)
     args = parser.parse_args()
