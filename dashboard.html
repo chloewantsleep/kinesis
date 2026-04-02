@@ -8,21 +8,21 @@
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap');
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; background: #0a0a0a; color: #d4d4d4; height: 100vh; display: flex; flex-direction: column; font-size: 13px; }
+  body { font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; background: #0a0a0a; color: #d4d4d4; height: 100vh; display: flex; flex-direction: column; font-size: 15px; }
   .main-layout { display: flex; flex: 1; overflow: hidden; }
 
   /* Header */
   header { padding: 14px 24px; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   header h1 { font-size: 1.1em; font-weight: 700; color: #fff; letter-spacing: 3px; text-transform: uppercase; }
   .agents { display: flex; gap: 8px; }
-  .agent-chip { padding: 4px 12px; font-size: 0.8em; font-weight: 600; border: 1px solid #333; color: #555; transition: all 0.3s; text-transform: uppercase; letter-spacing: 1px; }
+  .agent-chip { padding: 5px 14px; font-size: 0.85em; font-weight: 600; border: 1px solid #333; color: #555; transition: all 0.3s; text-transform: uppercase; letter-spacing: 1px; }
   .agent-chip.active { color: #fff; }
   .agent-chip.active[data-agent=kinesess] { border-color: #e06c75; color: #e06c75; background: none; }
   .agent-chip.active[data-agent=glasses] { border-color: #56b6c2; color: #56b6c2; background: none; }
   .agent-chip.active[data-agent=brain] { border-color: #c678dd; color: #c678dd; background: none; }
 
   /* Context bar */
-  .context-bar { padding: 8px 24px; border-bottom: 1px solid #222; display: flex; gap: 20px; font-size: 0.85em; color: #666; flex-shrink: 0; background: #0e0e0e; text-transform: uppercase; letter-spacing: 0.5px; }
+  .context-bar { padding: 10px 24px; border-bottom: 1px solid #222; display: flex; gap: 20px; font-size: 0.9em; color: #666; flex-shrink: 0; background: #0e0e0e; text-transform: uppercase; letter-spacing: 0.5px; }
   .ctx-item { display: flex; align-items: center; gap: 6px; }
   .ctx-val { color: #abb2bf; font-weight: 700; }
   .ctx-val.bad { color: #e06c75; }
@@ -32,14 +32,14 @@
   .ctx-dot.social-no { background: #333; }
 
   /* Sidebar */
-  .sidebar { width: 200px; flex-shrink: 0; background: #0e0e0e; border-right: 1px solid #222; padding: 20px 16px; overflow-y: auto; }
-  .sidebar h3 { font-size: 0.7em; text-transform: uppercase; letter-spacing: 2px; color: #555; margin-bottom: 16px; }
+  .sidebar { width: 220px; flex-shrink: 0; background: #0e0e0e; border-right: 1px solid #222; padding: 20px 16px; overflow-y: auto; }
+  .sidebar h3 { font-size: 0.75em; text-transform: uppercase; letter-spacing: 2px; color: #555; margin-bottom: 16px; }
   .sidebar-section { margin-bottom: 24px; }
   .filter-item { display: flex; align-items: center; gap: 10px; padding: 5px 0; cursor: pointer; user-select: none; }
   .filter-item input[type="checkbox"] { appearance: none; width: 14px; height: 14px; border-radius: 0; border: 1px solid #444; background: transparent; cursor: pointer; flex-shrink: 0; position: relative; }
   .filter-item input[type="checkbox"]:checked { border-color: #d4d4d4; background: #d4d4d4; }
   .filter-item input[type="checkbox"]:checked::after { content: '\2713'; position: absolute; top: -1px; left: 1px; font-size: 11px; color: #0a0a0a; font-weight: 700; }
-  .filter-item label { font-size: 0.8em; color: #999; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
+  .filter-item label { font-size: 0.85em; color: #999; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
   .filter-item:hover label { color: #d4d4d4; }
   .filter-item[data-agent="kinesess"] input:checked { border-color: #e06c75; background: #e06c75; }
   .filter-item[data-agent="glasses"] input:checked { border-color: #56b6c2; background: #56b6c2; }
@@ -49,7 +49,7 @@
   /* Toggle switch */
   .toggle-section { margin-bottom: 24px; }
   .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
-  .toggle-label { font-size: 0.8em; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+  .toggle-label { font-size: 0.85em; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
   .toggle-label .mode-val { color: #56b6c2; font-weight: 700; }
   .toggle-switch { position: relative; width: 36px; height: 18px; cursor: pointer; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -68,14 +68,14 @@
   .event { margin-bottom: 2px; padding: 10px 14px; border-radius: 0; border-left: 2px solid #333; background: transparent; }
   .event:hover { background: #111; }
   .event-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .event-agent { font-weight: 700; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
+  .event-agent { font-weight: 700; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.5px; }
   .event-agent.kinesess { color: #e06c75; }
   .event-agent.glasses { color: #56b6c2; }
   .event-agent.brain { color: #c678dd; }
   .event-agent.system { color: #5c6370; }
   .event-arrow { color: #555; font-size: 0.8em; }
   .event-time { color: #444; font-size: 0.75em; margin-left: auto; font-variant-numeric: tabular-nums; }
-  .event-type { font-size: 0.65em; padding: 1px 6px; border-radius: 0; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border: 1px solid; }
+  .event-type { font-size: 0.7em; padding: 2px 8px; border-radius: 0; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border: 1px solid; }
   .event-type.question { background: none; color: #56b6c2; border-color: #56b6c2; }
   .event-type.reply { background: none; color: #98c379; border-color: #98c379; }
   .event-type.haptic { background: none; color: #d19a66; border-color: #d19a66; }
@@ -101,7 +101,7 @@
 
   /* Sensor log */
   .sensor-log-section { margin-bottom: 24px; }
-  .sensor-log { background: #111; border: 1px solid #222; height: 160px; overflow-y: auto; padding: 6px 8px; font-size: 0.7em; line-height: 1.5; color: #666; }
+  .sensor-log { background: #111; border: 1px solid #222; height: 170px; overflow-y: auto; padding: 8px 10px; font-size: 0.75em; line-height: 1.6; color: #666; }
   .sensor-log::-webkit-scrollbar { width: 3px; }
   .sensor-log::-webkit-scrollbar-thumb { background: #333; }
   .sensor-log::-webkit-scrollbar-track { background: #111; }
@@ -110,6 +110,7 @@
   .sensor-log .log-label { color: #56b6c2; font-weight: 700; }
   .sensor-log .log-conf { color: #e5c07b; }
   .sensor-log .log-scores { color: #555; }
+  .sensor-log .log-motion { color: #98c379; }
   .sensor-log .log-empty { color: #333; text-transform: uppercase; letter-spacing: 1px; padding: 8px 0; text-align: center; }
 
   /* Empty state */
@@ -440,6 +441,7 @@ function appendSensorLog(data) {
   const t = new Date().toLocaleTimeString();
   const label = data.scene_label || '?';
   const conf = ((data.confidence || 0) * 100).toFixed(0);
+  const motion = ((data.motion_level || 0) * 100).toFixed(0);
   const prompt = data.top_prompt || '';
 
   // Build score bar for each label
@@ -456,7 +458,8 @@ function appendSensorLog(data) {
   line.innerHTML =
     `<span class="log-time">${t}</span> ` +
     `<span class="log-label">${label}</span> ` +
-    `<span class="log-conf">${conf}%</span>` +
+    `<span class="log-conf">${conf}%</span> ` +
+    `<span class="log-motion">m:${motion}%</span>` +
     (scoresHTML ? `<br><span class="log-scores">${scoresHTML}</span>` : '') +
     (prompt ? `<br><span class="log-scores">${prompt}</span>` : '');
 

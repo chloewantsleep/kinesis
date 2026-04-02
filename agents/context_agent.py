@@ -213,12 +213,26 @@ class ContextAgent:
             return
 
         self._inferencer = CLIPContextInferencer(model_name=self._clip_model)
+        self._prev_frame = None
         logger.info("Camera + CLIP ready")
+
+    def _compute_motion(self, frame) -> float:
+        """Frame-diff motion detection (from teammate's VisionTools)."""
+        import numpy as np
+        if self._prev_frame is None or frame is None:
+            return 0.0
+        diff = np.abs(frame.astype(float) - self._prev_frame.astype(float))
+        return float(diff.mean() / 255.0)
 
     def _camera_to_scene_context(self) -> tuple[SceneContext, dict]:
         """Read a frame from the real camera, run CLIP, return (SceneContext, raw_clip_result)."""
         frame, ts = self._camera.get_latest_frame()
         result = self._inferencer.infer(frame)
+
+        # Add motion detection
+        motion = self._compute_motion(frame)
+        result["motion_level"] = motion
+        self._prev_frame = frame
 
         scene_label = result.get("scene_label", "unknown")
         scene_type = CLIP_LABEL_TO_SCENE.get(scene_label, SceneType.UNKNOWN)
