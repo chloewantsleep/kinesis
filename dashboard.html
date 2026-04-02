@@ -233,7 +233,14 @@ function getEventAgent(el) {
   return null;
 }
 
+// Dedup: suppress identical agent+type events within 5s
+const _lastEventTime = {};
 function addEvent(opts) {
+  const dedupKey = `${opts.agent || 'system'}:${opts.type || ''}`;
+  const now = Date.now();
+  if (_lastEventTime[dedupKey] && (now - _lastEventTime[dedupKey]) < 5000) return;
+  _lastEventTime[dedupKey] = now;
+
   if (firstEvent) { feed.innerHTML = ''; firstEvent = false; }
 
   const el = document.createElement('div');
