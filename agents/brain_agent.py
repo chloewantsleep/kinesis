@@ -62,7 +62,7 @@ Every 30 seconds you get a snapshot of ALL shared state (posture, tension, scene
 3. **Device agent prompts** (`state://kinesess/system_prompt`, `state://glasses/system_prompt`):
    - You can rewrite device agents' behavioral prompts. Do this sparingly.
 
-4. **Plannering messages** via `display_overlay`:
+4. **Planner messages** via `display_overlay`:
    - Brief, encouraging. "Great posture!" / "Quick stretch?"
 
 ## Available Tools

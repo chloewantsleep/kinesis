@@ -425,7 +425,7 @@ function handleState(entry) {
   else if (did === 'brain' && key === 'mode') {
     const mode = data.mode || 'normal';
     document.getElementById('ctx-mode').textContent = mode;
-    addEvent({ agent: 'brain', type: 'decision', message: `Plannering mode set to <strong>${mode}</strong>` });
+    addEvent({ agent: 'brain', type: 'decision', message: `Intervention mode set to <strong>${mode}</strong>` });
   }
   else if (did === 'brain' && key === 'attention_budget') {
     document.getElementById('ctx-budget').textContent = data.remaining ?? '--';
