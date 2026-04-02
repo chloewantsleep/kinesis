@@ -476,8 +476,9 @@ if __name__ == "__main__":
         clip_model=args.clip_model,
     )
 
-    # Always init camera on the main thread (macOS AVFoundation requirement)
-    # so the dashboard toggle can switch to it at any time.
-    agent.pre_init_camera()
+    # Only init camera on main thread if requested via CLI.
+    # Dashboard toggle can still switch to camera if it was pre-initialized.
+    if args.camera:
+        agent.pre_init_camera()
 
     asyncio.run(agent.run())

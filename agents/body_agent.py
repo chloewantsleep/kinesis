@@ -514,7 +514,8 @@ if __name__ == "__main__":
         serial_port=args.serial_port,
     )
 
-    # Always try to init ESP32 on main thread so dashboard toggle works
-    agent.pre_init_esp32()
+    # Only init ESP32 if requested via CLI
+    if args.esp32:
+        agent.pre_init_esp32()
 
     asyncio.run(agent.run())
