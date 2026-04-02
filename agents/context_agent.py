@@ -194,8 +194,8 @@ class ContextAgent:
         """Init real camera + CLIP inferencer.
 
         Camera capture must be opened on the main thread on macOS
-        (AVFoundation requirement). Call this before the async loop or
-        from the main thread — never from asyncio.to_thread.
+        (AVFoundation requirement). Call this before asyncio.run().
+        Falls back gracefully if camera is unavailable.
         """
         if self._camera is not None:
             return  # already initialized
@@ -204,8 +204,14 @@ class ContextAgent:
         from scene_features import CLIPContextInferencer
 
         logger.info("Initializing camera %d + CLIP model %s", self._camera_index, self._clip_model)
-        self._camera = CameraBridge(camera_index=self._camera_index)
-        self._camera.start()
+        try:
+            cam = CameraBridge(camera_index=self._camera_index)
+            cam.start()
+            self._camera = cam
+        except Exception as e:
+            logger.warning("Camera init failed: %s — camera mode unavailable", e)
+            return
+
         self._inferencer = CLIPContextInferencer(model_name=self._clip_model)
         logger.info("Camera + CLIP ready")
 
@@ -262,15 +268,9 @@ class ContextAgent:
 
             if requested_mode != active_mode:
                 logger.info("Switching data source: %s → %s", active_mode, requested_mode)
-                if requested_mode == "camera":
-                    # Camera init must happen on the main thread (macOS).
-                    # If not already initialized, run it via the default executor
-                    # which on macOS with OPENCV_AVFOUNDATION_SKIP_AUTH=1 is OK.
-                    if self._camera is None:
-                        loop = asyncio.get_running_loop()
-                        await loop.run_in_executor(None, self._init_camera)
-                elif requested_mode == "mock" and self._camera is not None:
-                    await asyncio.to_thread(self._stop_camera)
+                if requested_mode == "camera" and self._camera is None:
+                    logger.warning("Camera not available — staying on mock")
+                    requested_mode = "mock"
                 active_mode = requested_mode
 
             # Read from active source
@@ -462,9 +462,8 @@ if __name__ == "__main__":
         clip_model=args.clip_model,
     )
 
-    # Camera must be opened on the main thread (macOS AVFoundation).
-    # Do it here before asyncio.run() takes over.
-    if args.camera:
-        agent.pre_init_camera()
+    # Always init camera on the main thread (macOS AVFoundation requirement)
+    # so the dashboard toggle can switch to it at any time.
+    agent.pre_init_camera()
 
     asyncio.run(agent.run())
