@@ -33,7 +33,7 @@ from pathlib import Path
 os.environ.setdefault("OPENCV_AVFOUNDATION_SKIP_AUTH", "1")
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env", override=True)
 
 import anthropic
 from mcp.client.streamable_http import streamable_http_client
@@ -57,11 +57,11 @@ CLIP_LABEL_TO_SCENE: dict[str, SceneType] = {
     "kitchen": SceneType.DESK,  # closest match
 }
 
-# Faster timeline for demos (45s desk → 30s meeting → 15s walking → repeat)
+# Fast demo timeline: desk(10s) → meeting(10s) → walking(5s) → repeat
 DEMO_TIMELINE = [
-    (45.0, SceneContext(SceneType.DESK, 0.95, False, 35.0)),
-    (30.0, SceneContext(SceneType.MEETING, 0.90, True, 55.0)),
-    (15.0, SceneContext(SceneType.WALKING, 0.85, False, 60.0)),
+    (10.0, SceneContext(SceneType.DESK, 0.95, False, 35.0)),
+    (10.0, SceneContext(SceneType.MEETING, 0.90, True, 55.0)),
+    (5.0, SceneContext(SceneType.WALKING, 0.85, False, 60.0)),
 ]
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
 SENSOR_INTERVAL_S = 2.0
-LLM_COOLDOWN_S = 15.0
+LLM_COOLDOWN_S = 8.0
 MAX_TOOL_ROUNDS = 5
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env", override=True)
 
 import anthropic
 from mcp.client.streamable_http import streamable_http_client
@@ -53,12 +53,12 @@ def _deviation_to_posture(dev_deg: float) -> PostureClass:
     else:
         return PostureClass.LEANING_LEFT if abs_dev < 20 else PostureClass.LEANING_RIGHT
 
-# Scripted demo: good(20s) → slouching(40s) → good(15s) → hunched(35s) → repeat
+# Scripted demo: good(5s) → slouching(15s) → good(5s) → hunched(15s) → repeat
 DEMO_POSTURE_TIMELINE = [
-    (20.0, PostureReading(PostureClass.GOOD, 0.9, 20.0, 3.0)),
-    (40.0, PostureReading(PostureClass.SLOUCHING, 0.85, 40.0, 18.0)),
-    (15.0, PostureReading(PostureClass.GOOD, 0.9, 15.0, 2.5)),
-    (35.0, PostureReading(PostureClass.HUNCHED, 0.88, 35.0, 22.0)),
+    (5.0, PostureReading(PostureClass.GOOD, 0.9, 5.0, 3.0)),
+    (15.0, PostureReading(PostureClass.SLOUCHING, 0.85, 15.0, 18.0)),
+    (5.0, PostureReading(PostureClass.GOOD, 0.9, 5.0, 2.5)),
+    (15.0, PostureReading(PostureClass.HUNCHED, 0.88, 15.0, 22.0)),
 ]
 
 logger = logging.getLogger(__name__)
@@ -69,10 +69,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
 SENSOR_INTERVAL_S = 0.5
-LLM_COOLDOWN_S = 30.0
-BAD_POSTURE_THRESHOLD_S = 30.0
+LLM_COOLDOWN_S = 10.0
+BAD_POSTURE_THRESHOLD_S = 5.0
 HIGH_TENSION_THRESHOLD = 0.8
-HIGH_TENSION_DURATION_S = 10.0
+HIGH_TENSION_DURATION_S = 5.0
 MAX_TOOL_ROUNDS = 5
 
 # ---------------------------------------------------------------------------
