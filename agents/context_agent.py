@@ -1,13 +1,18 @@
 """Glasses context agent — observes the user's environment and provides context.
 
-This is an LLM agent. It reads mock scene/gaze sensors on a loop (2s), writes
-to the shared state blackboard, and invokes Claude when:
+This is an LLM agent. It reads sensors on a loop (2s), writes to the shared
+state blackboard, and invokes Claude when:
 - The scene changes (desk → meeting → walking)
 - Another agent asks a question via the discussion channel
 
 Usage:
+    # Mock sensors (default)
     python agents/context_agent.py
-    python agents/context_agent.py --server http://localhost:9000/mcp
+    python agents/context_agent.py --demo
+
+    # Real camera + CLIP scene classification
+    python agents/context_agent.py --camera
+    python agents/context_agent.py --camera --camera-index 1
 """
 
 from __future__ import annotations
@@ -32,6 +37,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from schemas import SceneType, SceneContext
 from ble.mock_sensors import MockSceneSensor, MockGazeSensor
+
+# Teammate's real camera + CLIP inference (context-agent/python/)
+CONTEXT_AGENT_DIR = str(Path(__file__).resolve().parent.parent / "context-agent" / "python")
+sys.path.insert(0, CONTEXT_AGENT_DIR)
+
+# Label mapping: teammate's CLIP labels → our SceneType enum
+CLIP_LABEL_TO_SCENE: dict[str, SceneType] = {
+    "desk_work": SceneType.DESK,
+    "meeting": SceneType.MEETING,
+    "walking": SceneType.WALKING,
+    "resting": SceneType.STANDING,
+    "kitchen": SceneType.DESK,  # closest match
+}
 
 # Faster timeline for demos (45s desk → 30s meeting → 15s walking → repeat)
 DEMO_TIMELINE = [
@@ -130,10 +148,17 @@ async def _execute_tool_call(session: ClientSession, name: str, arguments: dict)
 # ---------------------------------------------------------------------------
 
 class ContextAgent:
-    def __init__(self, server_url: str = DEFAULT_SERVER_URL, demo: bool = False) -> None:
+    def __init__(self, server_url: str = DEFAULT_SERVER_URL, demo: bool = False,
+                 use_camera: bool = False, camera_index: int = 0,
+                 clip_model: str = "openai/clip-vit-base-patch32") -> None:
         self._server_url = server_url
         self._local = _LocalState()
         self._demo = demo
+        self._use_camera = use_camera
+        self._camera_index = camera_index
+        self._clip_model = clip_model
+        self._camera = None
+        self._inferencer = None
 
     async def run(self) -> None:
         while True:
@@ -159,20 +184,59 @@ class ContextAgent:
 
     # -- fast path: sensor loop --
 
+    def _init_camera(self) -> None:
+        """Lazy-init real camera + CLIP inferencer."""
+        from camera_bridge import CameraBridge
+        from scene_features import CLIPContextInferencer
+
+        logger.info("Initializing camera %d + CLIP model %s", self._camera_index, self._clip_model)
+        self._camera = CameraBridge(camera_index=self._camera_index)
+        self._camera.start()
+        self._inferencer = CLIPContextInferencer(model_name=self._clip_model)
+        logger.info("Camera + CLIP ready")
+
+    def _camera_to_scene_context(self) -> SceneContext:
+        """Read a frame from the real camera, run CLIP, return SceneContext."""
+        frame, ts = self._camera.get_latest_frame()
+        result = self._inferencer.infer(frame)
+
+        scene_label = result.get("scene_label", "unknown")
+        scene_type = CLIP_LABEL_TO_SCENE.get(scene_label, SceneType.UNKNOWN)
+        confidence = result.get("confidence", 0.0)
+
+        return SceneContext(
+            scene=scene_type,
+            confidence=confidence,
+            social=False,  # CLIP doesn't detect social context yet
+            ambient_noise_db=0.0,  # no audio sensor yet
+            timestamp=ts or time.time(),
+        )
+
     async def _sensor_loop(self, session: ClientSession) -> None:
-        scene_sensor = MockSceneSensor(scripted=DEMO_TIMELINE if self._demo else None)
-        gaze_sensor = MockGazeSensor(scene_sensor=scene_sensor)
+        if self._use_camera:
+            # Real camera + CLIP inference
+            await asyncio.to_thread(self._init_camera)
+            gaze_sensor = None
+        else:
+            # Mock sensors
+            scene_sensor = MockSceneSensor(scripted=DEMO_TIMELINE if self._demo else None)
+            gaze_sensor = MockGazeSensor(scene_sensor=scene_sensor)
 
         while True:
-            scene_ctx = await scene_sensor.read()
-            gaze = await gaze_sensor.read()
+            if self._use_camera:
+                scene_ctx = await asyncio.to_thread(self._camera_to_scene_context)
+                gaze = None
+            else:
+                scene_ctx = await scene_sensor.read()
+                gaze = await gaze_sensor.read()
 
             self._local.last_scene_context = scene_ctx
             self._local.last_gaze = gaze
 
             # Write to blackboard (serialized to avoid session contention)
             await self._safe_update(session, "context", scene_ctx.to_dict(), scene_ctx.confidence)
-            await self._safe_update(session, "gaze", gaze.to_dict(), gaze.confidence)
+            if gaze is not None:
+                await self._safe_update(session, "gaze", gaze.to_dict(), gaze.confidence)
 
             # Detect scene change
             if self._local.last_scene != scene_ctx.scene:
@@ -331,6 +395,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Glasses context agent")
     parser.add_argument("--server", default=DEFAULT_SERVER_URL)
     parser.add_argument("--demo", action="store_true", help="Use faster scene timeline for demos")
+    parser.add_argument("--camera", action="store_true", help="Use real camera + CLIP instead of mock sensors")
+    parser.add_argument("--camera-index", type=int, default=0, help="Camera device index")
+    parser.add_argument("--clip-model", default="openai/clip-vit-base-patch32", help="HuggingFace CLIP model name")
     args = parser.parse_args()
 
-    asyncio.run(ContextAgent(server_url=args.server, demo=args.demo).run())
+    asyncio.run(ContextAgent(
+        server_url=args.server,
+        demo=args.demo,
+        use_camera=args.camera,
+        camera_index=args.camera_index,
+        clip_model=args.clip_model,
+    ).run())
