@@ -57,9 +57,9 @@ CLIP_LABEL_TO_SCENE: dict[str, SceneType] = {
     "kitchen": SceneType.DESK,  # closest match
 }
 
-# Demo timeline: desk(40s) → meeting(30s) → walking(15s) → repeat
+# Demo timeline: desk(45s) → meeting(30s) → walking(15s) → repeat
 DEMO_TIMELINE = [
-    (40.0, SceneContext(SceneType.DESK, 0.95, False, 35.0)),
+    (45.0, SceneContext(SceneType.DESK, 0.95, False, 35.0)),
     (30.0, SceneContext(SceneType.MEETING, 0.90, True, 55.0)),
     (15.0, SceneContext(SceneType.WALKING, 0.85, False, 60.0)),
 ]
