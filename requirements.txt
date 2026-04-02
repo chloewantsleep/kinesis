@@ -1,0 +1,10 @@
+anthropic
+mcp
+uvicorn
+starlette
+python-dotenv
+torch
+transformers
+Pillow
+numpy
+opencv-python
