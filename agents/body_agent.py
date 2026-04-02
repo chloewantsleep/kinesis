@@ -53,12 +53,15 @@ def _deviation_to_posture(dev_deg: float) -> PostureClass:
     else:
         return PostureClass.LEANING_LEFT if abs_dev < 20 else PostureClass.LEANING_RIGHT
 
-# Scripted demo: good(20s) → slouching(40s) → good(15s) → hunched(35s) → repeat
+# Scripted demo: good(15s) → slouching(35s) → good(12s) → hunched(30s) → leaning(25s) → good(15s) → repeat
+# LLM triggers after BAD_POSTURE_THRESHOLD_S of sustained bad posture
 DEMO_POSTURE_TIMELINE = [
-    (20.0, PostureReading(PostureClass.GOOD, 0.9, 20.0, 3.0)),
-    (40.0, PostureReading(PostureClass.SLOUCHING, 0.85, 40.0, 18.0)),
-    (15.0, PostureReading(PostureClass.GOOD, 0.9, 15.0, 2.5)),
-    (35.0, PostureReading(PostureClass.HUNCHED, 0.88, 35.0, 22.0)),
+    (15.0, PostureReading(PostureClass.GOOD, 0.92, 15.0, 2.5)),
+    (35.0, PostureReading(PostureClass.SLOUCHING, 0.85, 35.0, 18.0)),
+    (12.0, PostureReading(PostureClass.GOOD, 0.90, 12.0, 3.0)),
+    (30.0, PostureReading(PostureClass.HUNCHED, 0.88, 30.0, 22.0)),
+    (25.0, PostureReading(PostureClass.LEANING_LEFT, 0.80, 25.0, 14.0)),
+    (15.0, PostureReading(PostureClass.GOOD, 0.93, 15.0, 2.0)),
 ]
 
 logger = logging.getLogger(__name__)
@@ -69,8 +72,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
 SENSOR_INTERVAL_S = 2.0
-LLM_COOLDOWN_S = 30.0
-BAD_POSTURE_THRESHOLD_S = 30.0
+LLM_COOLDOWN_S = 20.0
+BAD_POSTURE_THRESHOLD_S = 15.0
 HIGH_TENSION_THRESHOLD = 0.8
 HIGH_TENSION_DURATION_S = 10.0
 MAX_TOOL_ROUNDS = 5
@@ -397,11 +400,20 @@ class BodyAgent:
                     reasoning = " ".join(text_parts)
                     logger.info("LLM decision: %s", reasoning)
                     # Post reasoning to blackboard so dashboard can show it
-                    await self._safe_update(session, "last_decision", {
-                        "trigger": self._local.trigger_reason,
-                        "reasoning": reasoning,
-                        "timestamp": time.time(),
-                    }, 1.0)
+                    try:
+                        await session.call_tool("update_state", {
+                            "device_id": "kinesess",
+                            "key": "last_decision",
+                            "data": {
+                                "trigger": self._local.trigger_reason,
+                                "reasoning": reasoning,
+                                "timestamp": time.time(),
+                            },
+                            "confidence": 1.0,
+                        })
+                        logger.info("Decision posted to blackboard")
+                    except Exception as e:
+                        logger.error("Failed to post decision to blackboard: %s", e)
 
             except anthropic.APIError as e:
                 logger.error("Claude API error: %s", e)

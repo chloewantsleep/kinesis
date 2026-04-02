@@ -57,11 +57,13 @@ CLIP_LABEL_TO_SCENE: dict[str, SceneType] = {
     "kitchen": SceneType.DESK,  # closest match
 }
 
-# Demo timeline: desk(45s) → meeting(30s) → walking(15s) → repeat
+# Demo timeline: desk(50s) → meeting(40s) → walking(20s) → desk(35s) → social(30s) → repeat
 DEMO_TIMELINE = [
-    (45.0, SceneContext(SceneType.DESK, 0.95, False, 35.0)),
-    (30.0, SceneContext(SceneType.MEETING, 0.90, True, 55.0)),
-    (15.0, SceneContext(SceneType.WALKING, 0.85, False, 60.0)),
+    (50.0, SceneContext(SceneType.DESK, 0.95, False, 35.0)),
+    (40.0, SceneContext(SceneType.MEETING, 0.90, True, 55.0)),
+    (20.0, SceneContext(SceneType.WALKING, 0.85, False, 60.0)),
+    (35.0, SceneContext(SceneType.DESK, 0.93, False, 38.0)),
+    (30.0, SceneContext(SceneType.SOCIAL, 0.88, True, 50.0)),
 ]
 
 logger = logging.getLogger(__name__)
@@ -72,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
 SENSOR_INTERVAL_S = 3.0
-LLM_COOLDOWN_S = 15.0
+LLM_COOLDOWN_S = 10.0
 MAX_TOOL_ROUNDS = 5
 
 # ---------------------------------------------------------------------------
@@ -398,11 +400,20 @@ class ContextAgent:
                 if text_parts:
                     reasoning = " ".join(text_parts)
                     logger.info("LLM decision: %s", reasoning)
-                    await self._safe_update(session, "last_decision", {
-                        "trigger": self._local.trigger_reason,
-                        "reasoning": reasoning,
-                        "timestamp": time.time(),
-                    }, 1.0)
+                    try:
+                        await session.call_tool("update_state", {
+                            "device_id": "glasses",
+                            "key": "last_decision",
+                            "data": {
+                                "trigger": self._local.trigger_reason,
+                                "reasoning": reasoning,
+                                "timestamp": time.time(),
+                            },
+                            "confidence": 1.0,
+                        })
+                        logger.info("Decision posted to blackboard")
+                    except Exception as e:
+                        logger.error("Failed to post decision to blackboard: %s", e)
 
             except anthropic.APIError as e:
                 logger.error("Claude API error: %s", e)

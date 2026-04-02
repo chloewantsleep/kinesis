@@ -159,6 +159,43 @@ def _track_agent(device_id: str) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# High-frequency keys that should only push to dashboard on value change,
+# not every write.  Maps (device_id, key) → last pushed data snapshot.
+_SSE_THROTTLE_KEYS = {"posture", "tension", "context", "gaze", "sensor_log"}
+_sse_last_pushed: dict[tuple[str, str], dict] = {}
+
+
+def _should_push_sse(device_id: str, key: str, data: dict[str, Any]) -> bool:
+    """Return True if this state update should be sent to the dashboard.
+    Sensor-rate keys are only pushed when the meaningful value changes."""
+    if key not in _SSE_THROTTLE_KEYS:
+        return True  # always push decisions, haptics, discussions, etc.
+
+    cache_key = (device_id, key)
+    prev = _sse_last_pushed.get(cache_key)
+
+    if key == "sensor_log":
+        return False  # sensor_log goes to sidebar only on explicit poll, not SSE
+
+    if key == "posture":
+        changed = prev is None or prev.get("classification") != data.get("classification")
+    elif key == "context":
+        changed = prev is None or prev.get("scene") != data.get("scene")
+    elif key == "tension":
+        # Only push if level crosses a 10% boundary
+        prev_lvl = int((prev or {}).get("level", 0) * 10)
+        cur_lvl = int(data.get("level", 0) * 10)
+        changed = prev is None or prev_lvl != cur_lvl
+    elif key == "gaze":
+        changed = prev is None or prev.get("target") != data.get("target")
+    else:
+        changed = True
+
+    if changed:
+        _sse_last_pushed[cache_key] = dict(data)
+    return changed
+
+
 def _do_update(device_id: str, key: str, data: dict[str, Any], confidence: float) -> StateEntry:
     existing = _state.get((device_id, key))
     version = (existing.version + 1) if existing else 1
@@ -167,7 +204,8 @@ def _do_update(device_id: str, key: str, data: dict[str, Any], confidence: float
         confidence=confidence, timestamp=time.time(), version=version,
     )
     _state[(device_id, key)] = entry
-    _push_sse_event(entry)
+    if _should_push_sse(device_id, key, data):
+        _push_sse_event(entry)
     return entry
 
 
@@ -433,6 +471,18 @@ _DASHBOARD_HTML = (Path(__file__).parent / "dashboard.html").read_text()
 @mcp.custom_route("/", methods=["GET"])
 async def dashboard_page(request: Request) -> Response:
     return HTMLResponse(_DASHBOARD_HTML)
+
+
+@mcp.custom_route("/api/sensor_log", methods=["GET"])
+async def api_sensor_log(request: Request) -> Response:
+    """Polled by sidebar sensor logs (not SSE — too noisy)."""
+    result = {}
+    for key in ["glasses/sensor_log", "kinesess/sensor_log"]:
+        did, k = key.split("/", 1)
+        entry = _state.get((did, k))
+        if entry:
+            result[key] = entry.to_dict()
+    return JSONResponse(result)
 
 
 @mcp.custom_route("/api/state", methods=["GET"])

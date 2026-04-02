@@ -52,7 +52,7 @@ def main():
     agent_commands = [
         ("Context Agent (Glasses)", [PYTHON, str(KINESIS_DIR / "agents" / "context_agent.py"), "--demo"]),
         ("Body Agent (Kinesess)", [PYTHON, str(KINESIS_DIR / "agents" / "body_agent.py"), "--demo"]),
-        ("Planner Agent", [PYTHON, str(KINESIS_DIR / "agents" / "brain_agent.py")]),
+        # ("Planner Agent", [PYTHON, str(KINESIS_DIR / "agents" / "brain_agent.py")]),  # disabled for now
     ]
 
     for name, cmd in agent_commands:

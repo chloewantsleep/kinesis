@@ -233,13 +233,20 @@ function getEventAgent(el) {
   return null;
 }
 
-// Dedup: suppress identical agent+type events within 5s
+// Dedup: suppress identical agent+type events within 15s (discussions exempt)
 const _lastEventTime = {};
+const _lastEventMsg = {};
 function addEvent(opts) {
   const dedupKey = `${opts.agent || 'system'}:${opts.type || ''}`;
   const now = Date.now();
-  if (_lastEventTime[dedupKey] && (now - _lastEventTime[dedupKey]) < 5000) return;
+  const isDiscussion = opts.type === 'question' || opts.type === 'reply';
+  // Discussions and decisions always show; others dedup by key+message within 15s
+  if (!isDiscussion && opts.type !== 'decision') {
+    if (_lastEventTime[dedupKey] && (now - _lastEventTime[dedupKey]) < 15000
+        && _lastEventMsg[dedupKey] === opts.message) return;
+  }
   _lastEventTime[dedupKey] = now;
+  _lastEventMsg[dedupKey] = opts.message;
 
   if (firstEvent) { feed.innerHTML = ''; firstEvent = false; }
 
@@ -327,6 +334,7 @@ function connectSSE() {
 
 // Track what we've already logged to avoid spam
 let lastPosture = '', lastScene = '', lastHaptic = 0, lastSpeech = 0;
+let initialPostureShown = false, initialSceneShown = false;
 
 function handleState(entry) {
   if (!entry || !entry.device_id) return;
@@ -337,20 +345,30 @@ function handleState(entry) {
   if (did === 'kinesess' && key === 'posture') {
     const cls = data.classification || 'unknown';
     const dev = (data.deviation_degrees || 0).toFixed(1);
+    // Always update context bar (silent)
     const el = document.getElementById('ctx-posture');
     el.textContent = cls.replace(/_/g, ' ');
     el.className = 'ctx-val ' + (cls === 'good' ? 'good' : cls === 'unknown' ? '' : 'bad');
     document.getElementById('ctx-deviation').textContent = dev + '\u00B0';
 
-    // Log posture changes
-    if (cls !== lastPosture && lastPosture !== '') {
-      addEvent({
-        agent: 'kinesess', type: 'trigger',
-        message: `Posture changed: <strong>${lastPosture}</strong> &rarr; <strong>${cls}</strong>`,
-        detail: `deviation: ${dev}\u00B0, duration: ${(data.duration_s||0).toFixed(0)}s`,
-      });
+    // Log initial posture and changes
+    if (cls !== lastPosture) {
+      if (lastPosture === '' && !initialPostureShown) {
+        initialPostureShown = true;
+        addEvent({
+          agent: 'kinesess', type: 'trigger',
+          message: `Posture: <strong>${cls.replace(/_/g, ' ')}</strong>`,
+          detail: `deviation: ${dev}\u00B0`,
+        });
+      } else if (lastPosture !== '') {
+        addEvent({
+          agent: 'kinesess', type: 'trigger',
+          message: `Posture changed: <strong>${lastPosture.replace(/_/g, ' ')}</strong> &rarr; <strong>${cls.replace(/_/g, ' ')}</strong>`,
+          detail: `deviation: ${dev}\u00B0`,
+        });
+      }
+      lastPosture = cls;
     }
-    lastPosture = cls;
   }
   else if (did === 'kinesess' && key === 'sensor_log') {
     appendBodySensorLog(data);
@@ -374,19 +392,30 @@ function handleState(entry) {
   }
   else if (did === 'glasses' && key === 'context') {
     const scene = data.scene || 'unknown';
+    // Always update the context bar (silent)
     document.getElementById('ctx-scene').textContent = scene;
     const socialDot = document.getElementById('ctx-social-dot');
     socialDot.className = 'ctx-dot ' + (data.social ? 'social-yes' : 'social-no');
     document.getElementById('ctx-social').textContent = data.social ? 'yes' : 'no';
 
-    if (scene !== lastScene && lastScene !== '') {
-      addEvent({
-        agent: 'glasses', type: 'scene',
-        message: `Scene changed: <strong>${lastScene}</strong> &rarr; <strong>${scene}</strong>`,
-        detail: `social: ${data.social}, noise: ${(data.ambient_noise_db||0).toFixed(0)} dB`,
-      });
+    // Log initial scene and changes
+    if (scene !== lastScene) {
+      if (lastScene === '' && !initialSceneShown) {
+        initialSceneShown = true;
+        addEvent({
+          agent: 'glasses', type: 'scene',
+          message: `Scene: <strong>${scene}</strong>`,
+          detail: `social: ${data.social}, noise: ${(data.ambient_noise_db||0).toFixed(0)} dB`,
+        });
+      } else if (lastScene !== '') {
+        addEvent({
+          agent: 'glasses', type: 'scene',
+          message: `Scene changed: <strong>${lastScene}</strong> &rarr; <strong>${scene}</strong>`,
+          detail: `social: ${data.social}, noise: ${(data.ambient_noise_db||0).toFixed(0)} dB`,
+        });
+      }
+      lastScene = scene;
     }
-    lastScene = scene;
   }
   else if (did === 'glasses' && key === 'last_decision') {
     addEvent({
@@ -503,6 +532,22 @@ function appendSensorLog(data) {
 }
 
 connectSSE();
+
+// Poll sensor logs separately (not SSE — too noisy)
+let _lastSensorVersion = {};
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/sensor_log');
+    const data = await r.json();
+    for (const [key, entry] of Object.entries(data)) {
+      if (entry.version !== _lastSensorVersion[key]) {
+        _lastSensorVersion[key] = entry.version;
+        if (key === 'glasses/sensor_log') appendSensorLog(entry.data);
+        if (key === 'kinesess/sensor_log') appendBodySensorLog(entry.data);
+      }
+    }
+  } catch {}
+}, 3000);
 
 // --- Data source toggles ---
 const toggleCamera = document.getElementById('toggle-camera');
