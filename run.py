@@ -54,6 +54,26 @@ def _check_runtime_dependencies() -> None:
         raise SystemExit(1)
 
 
+def _resolve_replay_dataset(dataset_arg: str) -> str:
+    candidate = Path(dataset_arg)
+    if candidate.is_absolute():
+        resolved = candidate
+    else:
+        search_paths = [
+            KINESIS_DIR / candidate,
+            KINESIS_DIR / "mock_data" / candidate,
+        ]
+        resolved = next((path for path in search_paths if path.exists()), search_paths[0])
+
+    if not resolved.exists():
+        logger.error("Replay dataset not found: %s", dataset_arg)
+        logger.error("Checked: %s", resolved)
+        logger.error("Available datasets in mock_data/: %s", ", ".join(sorted(p.name for p in (KINESIS_DIR / 'mock_data').glob('*.json'))))
+        raise SystemExit(1)
+
+    return str(resolved.resolve())
+
+
 def main():
     parser = argparse.ArgumentParser(description="Start the Kinesis multi-agent system")
     parser.add_argument("--replay-dataset", help="Path to a local replay dataset JSON used by body/context agents")
@@ -79,7 +99,7 @@ def main():
     context_cmd = [PYTHON, str(KINESIS_DIR / "agents" / "context_agent.py")]
     body_cmd = [PYTHON, str(KINESIS_DIR / "agents" / "body_agent.py")]
     if args.replay_dataset:
-        replay_path = str((KINESIS_DIR / args.replay_dataset).resolve()) if not Path(args.replay_dataset).is_absolute() else args.replay_dataset
+        replay_path = _resolve_replay_dataset(args.replay_dataset)
         context_cmd.extend(["--replay-dataset", replay_path])
         body_cmd.extend(["--replay-dataset", replay_path])
     else:
