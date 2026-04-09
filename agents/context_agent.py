@@ -109,8 +109,9 @@ The body agent may ask you whether it should intervene (e.g., "User has bad post
 ## Available Tools
 - update_state(device_id, key, data, confidence): Write glasses state to blackboard only
 - display_overlay(message, duration_ms, position): Show text on glasses display
-- reply_to_agent(from_agent, message): Reply to a question from another agent
-- get_pending_discussion(agent_id): Check if someone asked you a question
+- reply_to_agent(from_agent, message, discussion_id): Reply to a question.
+  ALWAYS pass the "id" field from get_pending_discussion as discussion_id.
+- get_pending_discussion(agent_id): Get the oldest pending question (contains "id" field)
 
 ## Output
 Be concise. 1-2 sentences max.
@@ -188,11 +189,14 @@ class ContextAgent:
     async def _run_with_session(self, session: ClientSession) -> None:
         sensor_task = asyncio.create_task(self._sensor_loop(session))
         llm_task = asyncio.create_task(self._llm_loop(session))
+        # Dedicated 250ms watcher for discussion questions (Issue 2 fix)
+        discussion_task = asyncio.create_task(self._discussion_watcher(session))
         try:
-            await asyncio.gather(sensor_task, llm_task)
+            await asyncio.gather(sensor_task, llm_task, discussion_task)
         finally:
             sensor_task.cancel()
             llm_task.cancel()
+            discussion_task.cancel()
 
     # -- fast path: sensor loop --
 
@@ -323,8 +327,7 @@ class ContextAgent:
                         self._local.trigger_reason = f"scene_change_{old_scene.value}_to_{scene_ctx.scene.value}"
                         self._local.llm_trigger.set()
 
-            # Check for pending discussion questions
-            await self._check_pending_discussion(session)
+            # Discussion polling handled by _discussion_watcher (250ms interval, not here)
 
             await asyncio.sleep(SENSOR_INTERVAL_S)
 
@@ -351,6 +354,17 @@ class ContextAgent:
                     self._local.llm_trigger.set()
         except Exception:
             pass  # non-critical
+
+    async def _discussion_watcher(self, session: ClientSession) -> None:
+        """Poll for pending questions every 250ms.
+
+        Replaces the per-tick check in _sensor_loop (which ran every 3s).
+        <250ms latency instead of up to 3s — avoids blocking body agent for
+        longer than necessary while waiting for a reply.
+        """
+        while True:
+            await self._check_pending_discussion(session)
+            await asyncio.sleep(0.25)
 
     # -- slow path: LLM decision loop --
 

@@ -37,6 +37,11 @@ DEFAULT_SERVER_URL = "http://localhost:8080/mcp"
 DEFAULT_LOOP_INTERVAL_S = 30.0
 MAX_HISTORY = 20
 MAX_TOOL_ROUNDS = 5
+ESCALATION_POLL_INTERVAL_S = 0.5
+
+# Issue 4: restrict which tools Claude can invoke for the brain agent.
+# Brain sets strategy and displays messages — it never touches hardware directly.
+BRAIN_ALLOWED_TOOLS = {"update_state", "display_overlay"}
 
 # ---------------------------------------------------------------------------
 # Planner system prompt
@@ -91,6 +96,7 @@ async def _mcp_tools_to_claude_tools(session: ClientSession) -> list[dict]:
             "input_schema": tool.inputSchema,
         }
         for tool in result.tools
+        if tool.name in BRAIN_ALLOWED_TOOLS  # Issue 4: scope tools to brain's role
     ]
 
 
@@ -112,6 +118,8 @@ class BrainAgent:
         self._server_url = server_url
         self._loop_interval = loop_interval
         self._history: list[dict] = []
+        self._escalation_event = asyncio.Event()
+        self._escalation_context: dict = {}
 
     async def run(self) -> None:
         while True:
@@ -130,54 +138,103 @@ class BrainAgent:
         claude = anthropic.AsyncAnthropic()
         claude_tools = await _mcp_tools_to_claude_tools(session)
 
+        # Issue 5: watch for soft escalations in parallel with the timer loop
+        escalation_watcher = asyncio.create_task(self._escalation_watcher(session))
+        try:
+            while True:
+                # Wake on escalation OR periodic timer — whichever fires first
+                try:
+                    await asyncio.wait_for(self._escalation_event.wait(), timeout=self._loop_interval)
+                    trigger = f"soft_escalation: {json.dumps(self._escalation_context)}"
+                    self._escalation_event.clear()
+                    self._escalation_context = {}
+                except asyncio.TimeoutError:
+                    trigger = "periodic_review"
+
+                await self._reasoning_cycle(session, claude, claude_tools, trigger)
+        finally:
+            escalation_watcher.cancel()
+
+    async def _escalation_watcher(self, session: ClientSession) -> None:
+        """Poll state://escalation/{device} every 500ms; wake brain immediately on new entry.
+
+        Device agents write to escalation/{device} for anomalies, habit chain progress,
+        or anything needing Coach attention within seconds. This replaces waiting up to
+        30s for the periodic timer (Issue 5 fix).
+        """
+        last_versions: dict[str, int] = {"kinesess": 0, "glasses": 0}
         while True:
-            try:
-                snapshot = await self._read_all_state(session)
-                self._history.append({"timestamp": time.time(), "state": snapshot})
-                if len(self._history) > MAX_HISTORY:
-                    self._history = self._history[-MAX_HISTORY:]
+            for device in ("kinesess", "glasses"):
+                try:
+                    result = await session.read_resource(f"state://escalation/{device}")
+                    content = result.contents[0]
+                    parsed = json.loads(content.text if hasattr(content, "text") else str(content))
+                    version = parsed.get("version", 0)
+                    if version > last_versions[device]:
+                        last_versions[device] = version
+                        self._escalation_context = {
+                            "device": device,
+                            "escalation": parsed.get("data", parsed),
+                        }
+                        logger.info("Escalation received from %s — waking planner", device)
+                        self._escalation_event.set()
+                except Exception:
+                    pass  # escalation state may not exist yet
+            await asyncio.sleep(ESCALATION_POLL_INTERVAL_S)
 
-                user_msg = self._build_user_message(snapshot)
-                messages: list[dict] = [{"role": "user", "content": user_msg}]
+    async def _reasoning_cycle(
+        self,
+        session: ClientSession,
+        claude: anthropic.AsyncAnthropic,
+        claude_tools: list[dict],
+        trigger: str,
+    ) -> None:
+        """Run one LLM planning cycle, then return."""
+        try:
+            snapshot = await self._read_all_state(session)
+            self._history.append({"timestamp": time.time(), "state": snapshot})
+            if len(self._history) > MAX_HISTORY:
+                self._history = self._history[-MAX_HISTORY:]
 
-                logger.info("Planner reasoning cycle starting")
+            user_msg = self._build_user_message(snapshot, trigger)
+            messages: list[dict] = [{"role": "user", "content": user_msg}]
 
-                for _ in range(MAX_TOOL_ROUNDS):
-                    response = await claude.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=1024,
-                        system=PLANNER_SYSTEM_PROMPT,
-                        tools=claude_tools,
-                        messages=messages,
-                    )
+            logger.info("Planner reasoning cycle: %s", trigger)
 
-                    if response.stop_reason != "tool_use":
-                        break
+            for _ in range(MAX_TOOL_ROUNDS):
+                response = await claude.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1024,
+                    system=PLANNER_SYSTEM_PROMPT,
+                    tools=claude_tools,
+                    messages=messages,
+                )
 
-                    tool_results = []
-                    for block in response.content:
-                        if block.type == "tool_use":
-                            logger.info("Planner tool: %s(%s)", block.name, json.dumps(block.input)[:200])
-                            result_text = await _execute_tool_call(session, block.name, block.input)
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": result_text,
-                            })
+                if response.stop_reason != "tool_use":
+                    break
 
-                    messages.append({"role": "assistant", "content": response.content})
-                    messages.append({"role": "user", "content": tool_results})
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        logger.info("Planner tool: %s(%s)", block.name, json.dumps(block.input)[:200])
+                        result_text = await _execute_tool_call(session, block.name, block.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result_text,
+                        })
 
-                text_parts = [b.text for b in response.content if hasattr(b, "text")]
-                if text_parts:
-                    logger.info("Planner decision: %s", " ".join(text_parts))
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
 
-            except anthropic.APIError as e:
-                logger.error("Claude API error: %s", e)
-            except Exception as e:
-                logger.error("Planner loop error: %s", e)
+            text_parts = [b.text for b in response.content if hasattr(b, "text")]
+            if text_parts:
+                logger.info("Planner decision: %s", " ".join(text_parts))
 
-            await asyncio.sleep(self._loop_interval)
+        except anthropic.APIError as e:
+            logger.error("Claude API error: %s", e)
+        except Exception as e:
+            logger.error("Planner loop error: %s", e)
 
     async def _read_all_state(self, session: ClientSession) -> dict:
         all_state: dict = {}
@@ -191,7 +248,7 @@ class BrainAgent:
                 all_state[device_id] = {"status": "unavailable"}
         return all_state
 
-    def _build_user_message(self, snapshot: dict) -> str:
+    def _build_user_message(self, snapshot: dict, trigger: str = "periodic_review") -> str:
         history_lines = []
         for entry in self._history[-10:]:
             ts = entry["timestamp"]
@@ -211,6 +268,7 @@ class BrainAgent:
         history_text = "\n".join(history_lines) if history_lines else "  (no history yet)"
 
         return (
+            f"TRIGGER: {trigger}\n\n"
             f"CURRENT STATE SNAPSHOT:\n{json.dumps(snapshot, indent=2)}\n\n"
             f"RECENT HISTORY ({len(self._history)} observations, last 10 shown):\n"
             f"{history_text}\n\n"

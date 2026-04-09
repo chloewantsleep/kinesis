@@ -63,10 +63,9 @@ _state: dict[tuple[str, str], StateEntry] = {}
 # Discussion state — for inter-agent Q&A
 # ---------------------------------------------------------------------------
 
-_pending_discussions: dict[str, dict] = {}  # keyed by to_agent
+_pending_discussions: dict[str, list[dict]] = defaultdict(list)  # to_agent → FIFO queue
 _discussion_events: list[dict] = []  # log of all discussion messages
-_discussion_reply_events: dict[str, asyncio.Event] = {}  # signal when reply arrives
-_discussion_replies: dict[str, str] = {}  # reply content keyed by discussion_id
+_discussion_replies: dict[str, str] = {}  # discussion_id → reply text (deleted after first read)
 
 # ---------------------------------------------------------------------------
 # Subscription registry
@@ -381,10 +380,11 @@ async def display_overlay(message: str, duration_ms: int = 3000, position: str =
 
 @mcp.tool()
 async def ask_agent(from_agent: str, to_agent: str, question: str, context: str = "") -> str:
-    """Ask another agent a question and wait for their reply.
+    """Ask another agent a question. Returns immediately with a discussion_id.
 
-    Use this when you need the other agent's perspective before making a decision.
-    The target agent will be notified, reason about your question, and reply.
+    The caller should poll get_reply(discussion_id) every ~300ms until a reply arrives.
+    The body agent's Python runtime handles this polling transparently — the LLM sees
+    the final reply, not the discussion_id.
 
     Args:
         from_agent: Your agent id ("kinesess" or "glasses")
@@ -392,7 +392,7 @@ async def ask_agent(from_agent: str, to_agent: str, question: str, context: str 
         question: Your question for the other agent
         context: Additional context (JSON string with relevant sensor data)
     """
-    discussion_id = f"{from_agent}_{to_agent}_{time.time()}"
+    discussion_id = f"{from_agent}_{to_agent}_{int(time.time() * 1000)}"
 
     discussion = {
         "id": discussion_id,
@@ -404,11 +404,11 @@ async def ask_agent(from_agent: str, to_agent: str, question: str, context: str 
         "status": "pending",
     }
 
-    _pending_discussions[to_agent] = discussion
+    # Enqueue — multiple questions can be pending for the same target (Issue 3 fix)
+    _pending_discussions[to_agent].append(discussion)
     _discussion_events.append(discussion)
-    _discussion_reply_events[discussion_id] = asyncio.Event()
 
-    # Write to blackboard so target agent sees it via subscription
+    # Write to blackboard — triggers subscription notification to target agent
     await _update_and_notify(
         "discussion", f"pending_{to_agent}",
         discussion, 1.0,
@@ -425,46 +425,52 @@ async def ask_agent(from_agent: str, to_agent: str, question: str, context: str 
         "timestamp": time.time(),
     })
 
-    logger.info("Discussion: %s → %s: %s", from_agent, to_agent, question[:100])
+    logger.info("Discussion queued: %s → %s: %s", from_agent, to_agent, question[:100])
 
-    # Wait for reply (timeout 30s)
-    try:
-        await asyncio.wait_for(_discussion_reply_events[discussion_id].wait(), timeout=30.0)
-        reply = _discussion_replies.pop(discussion_id, "No reply received.")
-        return json.dumps({"reply": reply, "from": to_agent, "status": "replied"})
-    except asyncio.TimeoutError:
-        return json.dumps({"reply": "Agent did not reply in time.", "from": to_agent, "status": "timeout"})
-    finally:
-        _discussion_reply_events.pop(discussion_id, None)
-        _pending_discussions.pop(to_agent, None)
+    # Return immediately — no server blocking (Issue 1 fix)
+    return json.dumps({
+        "discussion_id": discussion_id,
+        "status": "queued",
+        "to": to_agent,
+        "note": "Poll get_reply(discussion_id) to retrieve the answer",
+    })
 
 
 @mcp.tool()
-async def reply_to_agent(from_agent: str, message: str) -> str:
+async def reply_to_agent(from_agent: str, message: str, discussion_id: str = "") -> str:
     """Reply to a pending question from another agent.
 
     Call this when you've been asked a question and have formulated your response.
+    Pass discussion_id (from get_pending_discussion) to target a specific question;
+    omits it to reply to the oldest pending question for your agent.
 
     Args:
         from_agent: Your agent id ("kinesess" or "glasses")
         message: Your reply to the other agent's question
+        discussion_id: Optional — the id field from get_pending_discussion output
     """
-    # Find the pending discussion targeting this agent
-    discussion = _pending_discussions.get(from_agent)
-    if not discussion:
+    pending = _pending_discussions.get(from_agent, [])
+    if not pending:
         return json.dumps({"error": "no_pending_discussion", "from": from_agent})
 
-    discussion_id = discussion["id"]
+    # Match by discussion_id if provided; otherwise take the oldest (FIFO)
+    if discussion_id:
+        discussion = next((d for d in pending if d["id"] == discussion_id), pending[0])
+    else:
+        discussion = pending[0]
+
+    matched_id = discussion["id"]
     asking_agent = discussion["from"]
 
-    # Store reply and signal
-    _discussion_replies[discussion_id] = message
-    if discussion_id in _discussion_reply_events:
-        _discussion_reply_events[discussion_id].set()
+    # Store reply so get_reply() can return it
+    _discussion_replies[matched_id] = message
+
+    # Remove from queue
+    _pending_discussions[from_agent] = [d for d in pending if d["id"] != matched_id]
 
     # Log the reply
     reply_event = {
-        "id": discussion_id,
+        "id": matched_id,
         "from": from_agent,
         "to": asking_agent,
         "reply": message,
@@ -473,7 +479,7 @@ async def reply_to_agent(from_agent: str, message: str) -> str:
     }
     _discussion_events.append(reply_event)
 
-    # Write to blackboard
+    # Write to blackboard — lets brain agent / dashboard see the reply
     await _update_and_notify(
         "discussion", f"reply_{asking_agent}",
         reply_event, 1.0,
@@ -490,20 +496,40 @@ async def reply_to_agent(from_agent: str, message: str) -> str:
     })
 
     logger.info("Discussion reply: %s → %s: %s", from_agent, asking_agent, message[:100])
-    return json.dumps({"sent": True, "to": asking_agent})
+    return json.dumps({"sent": True, "to": asking_agent, "discussion_id": matched_id})
 
 
 @mcp.tool()
 async def get_pending_discussion(agent_id: str) -> str:
-    """Check if there's a pending question for this agent.
+    """Return the oldest pending question for this agent (FIFO).
+
+    The returned object includes an "id" field (discussion_id) that you must pass
+    to reply_to_agent so the reply is routed to the correct caller.
 
     Args:
         agent_id: Your agent id ("kinesess" or "glasses")
     """
-    discussion = _pending_discussions.get(agent_id)
-    if discussion:
-        return json.dumps(discussion)
+    pending = _pending_discussions.get(agent_id, [])
+    if pending:
+        return json.dumps(pending[0])  # oldest question first
     return json.dumps({"pending": False})
+
+
+@mcp.tool()
+async def get_reply(discussion_id: str) -> str:
+    """Check if a reply is available for a queued ask_agent call.
+
+    The body agent's Python runtime calls this automatically after ask_agent —
+    you never need to call this from a system prompt. It is exposed as a tool
+    so the polling loop can use the standard MCP session.call_tool path.
+
+    Args:
+        discussion_id: The discussion_id returned by ask_agent
+    """
+    reply = _discussion_replies.pop(discussion_id, None)  # one-time read, then gone
+    if reply is None:
+        return json.dumps({"status": "pending", "discussion_id": discussion_id})
+    return json.dumps({"status": "replied", "reply": reply, "discussion_id": discussion_id})
 
 
 # ---------------------------------------------------------------------------

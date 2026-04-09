@@ -174,9 +174,45 @@ async def _execute_tool_call(session: ClientSession, name: str, arguments: dict)
     try:
         result = await session.call_tool(name, arguments)
         texts = [c.text for c in result.content if hasattr(c, "text")]
-        return "\n".join(texts) if texts else "{}"
+        raw = "\n".join(texts) if texts else "{}"
+
+        # Intercept ask_agent: server now returns immediately with a discussion_id.
+        # Poll get_reply() client-side so the LLM still receives the final reply
+        # as a single tool result — it never sees the discussion_id machinery.
+        if name == "ask_agent":
+            data = json.loads(raw)
+            if "discussion_id" in data:
+                raw = await _poll_for_reply(session, data["discussion_id"], data.get("to", "glasses"))
+
+        return raw
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+async def _poll_for_reply(
+    session: ClientSession,
+    discussion_id: str,
+    from_agent: str,
+    interval: float = 0.3,
+    timeout: float = 10.0,
+) -> str:
+    """Poll get_reply every `interval` seconds until a reply arrives or timeout."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        await asyncio.sleep(interval)
+        try:
+            result = await session.call_tool("get_reply", {"discussion_id": discussion_id})
+            texts = [c.text for c in result.content if hasattr(c, "text")]
+            data = json.loads(texts[0] if texts else "{}")
+            if data.get("status") == "replied":
+                return json.dumps({
+                    "reply": data["reply"],
+                    "from": from_agent,
+                    "status": "replied",
+                })
+        except Exception:
+            pass
+    return json.dumps({"reply": "Agent did not reply in time.", "from": from_agent, "status": "timeout"})
 
 
 # ---------------------------------------------------------------------------
