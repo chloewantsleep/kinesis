@@ -5,6 +5,7 @@ import json
 import math
 import random
 from pathlib import Path
+from typing import Any
 
 
 SCENARIO_OUTPUTS = {
@@ -14,82 +15,124 @@ SCENARIO_OUTPUTS = {
 }
 
 
+def _segment_at(offset_s: float, segments: list[dict[str, Any]]) -> dict[str, Any]:
+    for segment in segments:
+        if segment["start"] <= offset_s < segment["end"]:
+            return segment
+    return segments[-1]
+
+
+def _piecewise_signal(offset_s: float, pattern: list[tuple[float, float, float]], base_wave_s: float = 6.0) -> float:
+    for start_s, end_s, value in pattern:
+        if start_s <= offset_s < end_s:
+            return value + 0.8 * math.sin(offset_s / base_wave_s)
+    _, _, fallback = pattern[-1]
+    return fallback + 0.6 * math.sin(offset_s / base_wave_s)
+
+
 def _work_tilt_deg(offset_s: float) -> float:
-    if offset_s < 45.0:
-        return 3.0 + 1.0 * math.sin(offset_s / 9.0)
-    if offset_s < 105.0:
-        return 9.0 + 3.0 * math.sin(offset_s / 12.0)
-    if offset_s < 140.0:
-        return 4.0 + 1.5 * math.sin(offset_s / 8.0)
-    if offset_s < 220.0:
-        return 13.0 + 4.0 * math.sin(offset_s / 10.0)
-    if offset_s < 270.0:
-        return 18.0 + 3.0 * math.sin(offset_s / 7.0)
-    return 5.0 + 1.5 * math.sin(offset_s / 11.0)
+    return _piecewise_signal(
+        offset_s,
+        [
+            (0.0, 42.0, 4.0),
+            (42.0, 95.0, 18.5),
+            (95.0, 125.0, 5.5),
+            (125.0, 178.0, 23.0),
+            (178.0, 212.0, 6.0),
+            (212.0, 268.0, 17.8),
+            (268.0, 300.0, 7.0),
+        ],
+        base_wave_s=7.2,
+    )
 
 
 def _meeting_tilt_deg(offset_s: float) -> float:
-    cycle = offset_s % 95.0
-    if cycle < 18.0:
-        return 4.0 + 0.8 * math.sin(cycle / 5.0)
-    if cycle < 52.0:
-        return 16.0 + 2.8 * math.sin(cycle / 6.0)
-    if cycle < 76.0:
-        return 21.0 + 2.0 * math.sin(cycle / 5.5)
-    return 7.0 + 1.2 * math.sin(cycle / 4.0)
+    return _piecewise_signal(
+        offset_s,
+        [
+            (0.0, 26.0, 6.0),
+            (26.0, 82.0, 20.5),
+            (82.0, 102.0, 9.0),
+            (102.0, 165.0, 24.5),
+            (165.0, 194.0, 11.0),
+            (194.0, 258.0, 22.0),
+            (258.0, 300.0, 8.0),
+        ],
+        base_wave_s=6.3,
+    )
 
 
 def _walking_forward_tilt_deg(offset_s: float) -> float:
-    cycle = offset_s % 70.0
-    if cycle < 20.0:
-        return 2.0 + 0.7 * math.sin(cycle / 4.0)
-    if cycle < 45.0:
-        return 6.0 + 1.3 * math.sin(cycle / 3.3)
-    return 3.5 + 0.9 * math.sin(cycle / 4.7)
+    return _piecewise_signal(
+        offset_s,
+        [
+            (0.0, 70.0, 4.5),
+            (70.0, 118.0, 8.8),
+            (118.0, 180.0, 6.2),
+            (180.0, 222.0, 9.8),
+            (222.0, 300.0, 5.5),
+        ],
+        base_wave_s=5.0,
+    )
 
 
 def _walking_lateral_deg(offset_s: float) -> float:
-    cycle = offset_s % 80.0
-    if cycle < 16.0:
-        return 0.0
-    if cycle < 36.0:
-        return -8.5 + 1.4 * math.sin(cycle / 2.8)
-    if cycle < 52.0:
-        return 0.0 + 0.8 * math.sin(cycle / 2.5)
-    if cycle < 72.0:
-        return 9.0 + 1.6 * math.sin(cycle / 3.0)
-    return 0.0
+    return _piecewise_signal(
+        offset_s,
+        [
+            (0.0, 36.0, 0.0),
+            (36.0, 63.0, -10.2),
+            (63.0, 88.0, 0.4),
+            (88.0, 118.0, 10.6),
+            (118.0, 154.0, -9.4),
+            (154.0, 188.0, 0.0),
+            (188.0, 223.0, 10.8),
+            (223.0, 255.0, -10.0),
+            (255.0, 300.0, 1.0),
+        ],
+        base_wave_s=3.3,
+    )
 
 
-def _gaze_for_offset(offset_s: float, rng: random.Random) -> tuple[str, float]:
-    cycle = offset_s % 30.0
-    if cycle < 20.0:
-        return "screen", round(rng.uniform(0.82, 0.97), 3)
-    if cycle < 24.0:
-        return "phone", round(rng.uniform(0.68, 0.88), 3)
-    if cycle < 28.0:
-        return "away", round(rng.uniform(0.60, 0.82), 3)
-    return "screen", round(rng.uniform(0.78, 0.95), 3)
-
-
-def _meeting_gaze_for_offset(offset_s: float, rng: random.Random) -> tuple[str, float]:
-    cycle = offset_s % 24.0
-    if cycle < 11.0:
-        return "person", round(rng.uniform(0.78, 0.93), 3)
-    if cycle < 18.0:
-        return "screen", round(rng.uniform(0.70, 0.88), 3)
-    if cycle < 21.0:
+def _gaze_for_scene(scene_name: str, offset_s: float, rng: random.Random) -> tuple[str, float]:
+    cycle = offset_s % 20.0
+    if scene_name == "desk":
+        if cycle < 13.0:
+            return "screen", round(rng.uniform(0.82, 0.96), 3)
+        if cycle < 17.0:
+            return "phone", round(rng.uniform(0.65, 0.86), 3)
         return "away", round(rng.uniform(0.58, 0.78), 3)
-    return "person", round(rng.uniform(0.76, 0.91), 3)
 
+    if scene_name in {"meeting", "social"}:
+        if cycle < 10.0:
+            return "person", round(rng.uniform(0.77, 0.93), 3)
+        if cycle < 14.0:
+            return "screen", round(rng.uniform(0.66, 0.84), 3)
+        return "away", round(rng.uniform(0.56, 0.76), 3)
 
-def _walking_gaze_for_offset(offset_s: float, rng: random.Random) -> tuple[str, float]:
-    cycle = offset_s % 18.0
-    if cycle < 10.0:
-        return "away", round(rng.uniform(0.76, 0.95), 3)
+    if cycle < 9.0:
+        return "away", round(rng.uniform(0.76, 0.94), 3)
     if cycle < 14.0:
         return "phone", round(rng.uniform(0.62, 0.86), 3)
-    return "person", round(rng.uniform(0.55, 0.78), 3)
+    return "person", round(rng.uniform(0.58, 0.8), 3)
+
+
+def _scores_for_scene(scene_label: str, confidence: float, rng: random.Random) -> dict[str, float]:
+    ranges = {
+        "desk_work": (0.02, 0.18),
+        "meeting": (0.02, 0.18),
+        "walking": (0.02, 0.16),
+        "resting": (0.01, 0.08),
+    }
+    clip_scores: dict[str, float] = {}
+    for label, (low, high) in ranges.items():
+        if label == scene_label:
+            clip_scores[label] = round(max(low, min(high, confidence)), 3)
+        else:
+            clip_scores[label] = round(rng.uniform(low, high), 3)
+
+    total = sum(clip_scores.values())
+    return {key: round(value / total, 3) for key, value in clip_scores.items()}
 
 
 def build_dataset(scenario: str, duration_s: int = 300, imu_hz: int = 25, context_interval_s: float = 3.0) -> dict:
@@ -97,70 +140,75 @@ def build_dataset(scenario: str, duration_s: int = 300, imu_hz: int = 25, contex
     rng = random.Random(seeds[scenario])
 
     if scenario == "working":
-        scene_name = "desk"
-        scene_label = "desk_work"
-        top_prompt = "a person working at a desk with a laptop"
-        gaze_fn = _gaze_for_offset
-        social_fn = lambda offset_s: False
-        noise_fn = lambda offset_s: round(37.0 + 2.5 * math.sin(offset_s / 17.0) + rng.uniform(-1.2, 1.2), 2)
-        confidence_fn = lambda offset_s: round(0.89 + 0.05 * math.sin(offset_s / 30.0) + rng.uniform(-0.02, 0.02), 3)
+        scene_segments = [
+            {"start": 0.0, "end": 132.0, "scene": "desk", "label": "desk_work", "social": False, "prompt": "a person working at a desk with a laptop", "noise": 37.0},
+            {"start": 132.0, "end": 198.0, "scene": "meeting", "label": "meeting", "social": True, "prompt": "a seated interview across a table", "noise": 54.0},
+            {"start": 198.0, "end": 249.0, "scene": "walking", "label": "walking", "social": False, "prompt": "a person walking through a hallway", "noise": 60.0},
+            {"start": 249.0, "end": 300.0, "scene": "desk", "label": "desk_work", "social": False, "prompt": "back at desk work with laptop", "noise": 39.0},
+        ]
+        confidence_base = 0.9
+        confidence_amp = 0.06
         forward_tilt_fn = _work_tilt_deg
         lateral_tilt_fn = lambda offset_s: 1.4 * math.sin(offset_s / 19.0)
-        motion_fn = lambda tilt, offset_s: 0.012 if tilt < 8 else 0.02 if tilt < 14 else 0.03
-        context_motion_fn = lambda offset_s: round(max(0.02, min(0.25, abs(math.sin(offset_s / 14.0)) * 0.18 + rng.uniform(0.0, 0.04))), 3)
-        score_ranges = {"desk_work": (0.72, 0.95), "meeting": (0.02, 0.09), "walking": (0.01, 0.05), "resting": (0.01, 0.04)}
-        description = "Five-minute replay of desk work with repeated slouch / recovery cycles for posture interventions."
+        motion_fn = lambda tilt, offset_s: 0.014 if tilt < 10 else 0.021 if tilt < 16 else 0.028
+        context_motion_fn = lambda offset_s: round(max(0.03, min(0.35, abs(math.sin(offset_s / 13.0)) * 0.22 + rng.uniform(0.0, 0.05))), 3)
+        description = "Five-minute replay with desk work as the main context plus brief meeting and walking transitions to trigger scene-change reasoning."
     elif scenario == "meeting":
-        scene_name = "meeting"
-        scene_label = "meeting"
-        top_prompt = "someone attending an interview or meeting across a table"
-        gaze_fn = _meeting_gaze_for_offset
-        social_fn = lambda offset_s: True
-        noise_fn = lambda offset_s: round(54.0 + 3.0 * math.sin(offset_s / 20.0) + rng.uniform(-1.5, 1.5), 2)
-        confidence_fn = lambda offset_s: round(0.87 + 0.04 * math.sin(offset_s / 28.0) + rng.uniform(-0.02, 0.02), 3)
+        scene_segments = [
+            {"start": 0.0, "end": 82.0, "scene": "meeting", "label": "meeting", "social": True, "prompt": "an interview in a quiet meeting room", "noise": 53.0},
+            {"start": 82.0, "end": 118.0, "scene": "desk", "label": "desk_work", "social": False, "prompt": "a short desk note-taking break", "noise": 40.0},
+            {"start": 118.0, "end": 224.0, "scene": "meeting", "label": "meeting", "social": True, "prompt": "returning to an interview conversation", "noise": 55.0},
+            {"start": 224.0, "end": 262.0, "scene": "social", "label": "meeting", "social": True, "prompt": "standing social conversation near others", "noise": 58.0},
+            {"start": 262.0, "end": 300.0, "scene": "meeting", "label": "meeting", "social": True, "prompt": "closing meeting discussion", "noise": 52.0},
+        ]
+        confidence_base = 0.88
+        confidence_amp = 0.05
         forward_tilt_fn = _meeting_tilt_deg
         lateral_tilt_fn = lambda offset_s: 0.9 * math.sin(offset_s / 21.0)
-        motion_fn = lambda tilt, offset_s: 0.01 if tilt < 10 else 0.015 if tilt < 18 else 0.02
-        context_motion_fn = lambda offset_s: round(max(0.01, min(0.12, abs(math.sin(offset_s / 18.0)) * 0.07 + rng.uniform(0.0, 0.02))), 3)
-        score_ranges = {"desk_work": (0.08, 0.18), "meeting": (0.70, 0.9), "walking": (0.01, 0.04), "resting": (0.02, 0.05)}
-        description = "Five-minute replay of an interview / meeting with sustained forward lean and social context to trigger skip decisions."
+        motion_fn = lambda tilt, offset_s: 0.012 if tilt < 10 else 0.018 if tilt < 18 else 0.024
+        context_motion_fn = lambda offset_s: round(max(0.01, min(0.16, abs(math.sin(offset_s / 17.0)) * 0.09 + rng.uniform(0.0, 0.03))), 3)
+        description = "Five-minute replay centered on meeting/interview posture stress, with brief desk and social transitions for richer agent coordination."
     else:
-        scene_name = "walking"
-        scene_label = "walking"
-        top_prompt = "a person walking along a street with body sway"
-        gaze_fn = _walking_gaze_for_offset
-        social_fn = lambda offset_s: (offset_s % 42.0) > 30.0
-        noise_fn = lambda offset_s: round(63.0 + 5.5 * math.sin(offset_s / 11.0) + rng.uniform(-2.0, 2.0), 2)
-        confidence_fn = lambda offset_s: round(0.84 + 0.05 * math.sin(offset_s / 22.0) + rng.uniform(-0.03, 0.03), 3)
+        scene_segments = [
+            {"start": 0.0, "end": 96.0, "scene": "walking", "label": "walking", "social": False, "prompt": "a person walking on a street", "noise": 64.0},
+            {"start": 96.0, "end": 136.0, "scene": "social", "label": "meeting", "social": True, "prompt": "brief stop to talk with a friend", "noise": 60.0},
+            {"start": 136.0, "end": 194.0, "scene": "walking", "label": "walking", "social": False, "prompt": "walking again with body sway", "noise": 66.0},
+            {"start": 194.0, "end": 232.0, "scene": "meeting", "label": "meeting", "social": True, "prompt": "waiting and chatting at a crossing", "noise": 58.0},
+            {"start": 232.0, "end": 300.0, "scene": "walking", "label": "walking", "social": False, "prompt": "resuming street walk", "noise": 65.0},
+        ]
+        confidence_base = 0.85
+        confidence_amp = 0.06
         forward_tilt_fn = _walking_forward_tilt_deg
         lateral_tilt_fn = _walking_lateral_deg
-        motion_fn = lambda tilt, offset_s: 0.05 + 0.015 * abs(math.sin(offset_s / 2.2))
-        context_motion_fn = lambda offset_s: round(max(0.32, min(0.68, 0.46 + 0.12 * math.sin(offset_s / 2.6) + rng.uniform(-0.03, 0.03))), 3)
-        score_ranges = {"desk_work": (0.02, 0.07), "meeting": (0.02, 0.06), "walking": (0.72, 0.9), "resting": (0.01, 0.04)}
-        description = "Five-minute replay of street walking with mild alternating side-bend episodes and high motion."
+        motion_fn = lambda tilt, offset_s: 0.047 + 0.02 * abs(math.sin(offset_s / 2.0))
+        context_motion_fn = lambda offset_s: round(max(0.34, min(0.75, 0.5 + 0.13 * math.sin(offset_s / 2.4) + rng.uniform(-0.035, 0.035))), 3)
+        description = "Five-minute replay of street walking with alternating side-bend episodes and temporary social/meeting transitions."
 
     context_samples = []
     sample_count = int(duration_s / context_interval_s)
     for index in range(sample_count):
         offset_s = round(index * context_interval_s, 3)
-        gaze_target, gaze_conf = gaze_fn(offset_s, rng)
-        confidence = confidence_fn(offset_s)
-        ambient_noise_db = noise_fn(offset_s)
-        clip_scores = {}
-        for label, (low, high) in score_ranges.items():
-            if label == scene_label:
-                clip_scores[label] = round(max(low, min(high, confidence)), 3)
-            else:
-                clip_scores[label] = round(rng.uniform(low, high), 3)
-        total = sum(clip_scores.values())
-        clip_scores = {key: round(value / total, 3) for key, value in clip_scores.items()}
+        seg = _segment_at(offset_s, scene_segments)
+        scene_name = seg["scene"]
+        scene_label = seg["label"]
+        gaze_target, gaze_conf = _gaze_for_scene(scene_name, offset_s, rng)
+
+        confidence = round(
+            max(
+                0.58,
+                min(0.97, confidence_base + confidence_amp * math.sin(offset_s / 23.0) + rng.uniform(-0.03, 0.03)),
+            ),
+            3,
+        )
+        ambient_noise_db = round(seg["noise"] + 2.4 * math.sin(offset_s / 14.0) + rng.uniform(-1.5, 1.5), 2)
+        clip_scores = _scores_for_scene(scene_label, confidence, rng)
 
         context_samples.append({
             "offset_s": offset_s,
             "scene_context": {
                 "scene": scene_name,
                 "confidence": confidence,
-                "social": social_fn(offset_s),
+                "social": seg["social"],
                 "ambient_noise_db": ambient_noise_db,
             },
             "gaze": {
@@ -173,7 +221,7 @@ def build_dataset(scenario: str, duration_s: int = 300, imu_hz: int = 25, contex
                 "confidence": confidence,
                 "motion_level": context_motion_fn(offset_s),
                 "scores_by_label": clip_scores,
-                "top_prompt": top_prompt,
+                "top_prompt": seg["prompt"],
                 "model": "mock-replay-v1",
             },
         })
