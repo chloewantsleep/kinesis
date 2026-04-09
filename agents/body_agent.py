@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from schemas import PostureClass, PostureReading, TensionReading
 from ble.mock_sensors import MockPostureSensor, MockTensionSensor
+from mock_replay import ReplayIMUBridge
 
 # Teammate's ESP32 bridge + feature extraction (body-agent/python/)
 BODY_AGENT_DIR = str(Path(__file__).resolve().parent.parent / "body-agent" / "python")
@@ -185,13 +186,16 @@ async def _execute_tool_call(session: ClientSession, name: str, arguments: dict)
 
 class BodyAgent:
     def __init__(self, server_url: str = DEFAULT_SERVER_URL, demo: bool = False,
-                 use_esp32: bool = False, serial_port: str = "/dev/cu.usbserial-0001") -> None:
+                 use_esp32: bool = False, serial_port: str = "/dev/cu.usbserial-0001",
+                 replay_dataset: str | None = None) -> None:
         self._server_url = server_url
         self._local = _LocalState()
         self._demo = demo
         self._use_esp32 = use_esp32
         self._serial_port = serial_port
+        self._replay_dataset = replay_dataset
         self._esp32 = None
+        self._replay_bridge = ReplayIMUBridge(replay_dataset) if replay_dataset else None
         self._baseline_tilt: float = 0.0
         self._baseline_calibrated: bool = False
 
@@ -233,11 +237,13 @@ class BodyAgent:
             logger.warning("ESP32 init failed: %s — ESP32 mode unavailable", e)
             self._esp32 = None
 
-    def _esp32_to_readings(self) -> tuple[PostureReading, TensionReading, dict]:
-        """Read IMU frames from ESP32, compute features, return (posture, tension, raw)."""
+    def _reset_baseline(self) -> None:
+        self._baseline_tilt = 0.0
+        self._baseline_calibrated = False
+
+    def _frames_to_readings(self, frames: list[dict]) -> tuple[PostureReading, TensionReading, dict]:
         from features import compute_features
 
-        frames = self._esp32.get_recent_frames(window_ms=1000)
         feats = compute_features(frames, baseline_tilt_deg=self._baseline_tilt)
 
         if not feats["ok"]:
@@ -271,15 +277,30 @@ class BodyAgent:
 
         return posture, tension, feats
 
+    def _esp32_to_readings(self) -> tuple[PostureReading, TensionReading, dict]:
+        """Read IMU frames from ESP32, compute features, return (posture, tension, raw)."""
+        frames = self._esp32.get_recent_frames(window_ms=1000)
+        return self._frames_to_readings(frames)
+
+    def _replay_to_readings(self) -> tuple[PostureReading, TensionReading, dict]:
+        frames = self._replay_bridge.get_recent_frames(window_ms=1000)
+        return self._frames_to_readings(frames)
+
     async def _check_data_source(self, session: ClientSession) -> str:
         """Read the data_source toggle from the blackboard (set by dashboard)."""
         try:
             result = await session.read_resource("state://kinesess/data_source")
             content = result.contents[0]
             data = json.loads(content.text if hasattr(content, "text") else str(content))
-            return data.get("data", {}).get("mode", "mock")
+            mode = data.get("data", {}).get("mode")
+            if mode:
+                return mode
         except Exception:
-            return "esp32" if self._use_esp32 else "mock"
+            pass
+
+        if self._replay_bridge is not None:
+            return "replay"
+        return "esp32" if self._use_esp32 else "mock"
 
     # -- fast path: sensor loop --
 
@@ -288,22 +309,38 @@ class BodyAgent:
         mock_posture = MockPostureSensor(scripted=DEMO_POSTURE_TIMELINE if self._demo else None)
         mock_tension = MockTensionSensor()
 
-        active_mode = "esp32" if self._esp32 is not None else "mock"
+        if self._replay_bridge is not None:
+            self._replay_bridge.start_streaming()
+            active_mode = "replay"
+        else:
+            active_mode = "esp32" if self._esp32 is not None else "mock"
 
         while True:
             # Check dashboard toggle
             requested_mode = await self._check_data_source(session)
             if requested_mode != active_mode:
-                if requested_mode == "esp32" and self._esp32 is None:
+                if requested_mode == "replay":
+                    if self._replay_bridge is None:
+                        logger.warning("Replay dataset not available — staying on %s", active_mode)
+                        requested_mode = active_mode
+                    else:
+                        self._reset_baseline()
+                        self._replay_bridge.start_streaming()
+                        logger.info("Switching body data source: %s → replay (%s)", active_mode, self._replay_dataset)
+                elif requested_mode == "esp32" and self._esp32 is None:
                     logger.warning("ESP32 not available — staying on mock")
                     requested_mode = "mock"
                 else:
+                    if requested_mode in {"mock", "esp32"}:
+                        self._reset_baseline()
                     logger.info("Switching body data source: %s → %s", active_mode, requested_mode)
                 active_mode = requested_mode
 
             # Read from active source
             imu_feats = None
-            if active_mode == "esp32" and self._esp32 is not None:
+            if active_mode == "replay" and self._replay_bridge is not None:
+                posture, tension, imu_feats = await asyncio.to_thread(self._replay_to_readings)
+            elif active_mode == "esp32" and self._esp32 is not None:
                 posture, tension, imu_feats = await asyncio.to_thread(self._esp32_to_readings)
             else:
                 posture = await mock_posture.read()
@@ -551,6 +588,7 @@ if __name__ == "__main__":
     parser.add_argument("--demo", action="store_true", help="Use scripted posture timeline for demos")
     parser.add_argument("--esp32", action="store_true", help="Use real ESP32 IMU sensor")
     parser.add_argument("--serial-port", default="/dev/cu.usbserial-0001", help="ESP32 serial port")
+    parser.add_argument("--replay-dataset", help="Path to local replay dataset JSON for IMU playback")
     args = parser.parse_args()
 
     agent = BodyAgent(
@@ -558,10 +596,11 @@ if __name__ == "__main__":
         demo=args.demo,
         use_esp32=args.esp32,
         serial_port=args.serial_port,
+        replay_dataset=args.replay_dataset,
     )
 
     # Only init ESP32 if requested via CLI
-    if args.esp32:
+    if args.esp32 and not args.replay_dataset:
         agent.pre_init_esp32()
 
     asyncio.run(agent.run())
