@@ -6,13 +6,13 @@ export default function Hero() {
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: "url('/kinesis-bg.png')" }}
       >
-        <div className="absolute inset-0 backdrop-blur-sm bg-black/15" />
+        <div className="absolute inset-0 backdrop-blur-sm" />
       </div>
 
       {/* Content — dead center of viewport */}
       <div className="absolute inset-0 flex items-center justify-center z-10">
         <div className="text-center">
-          <h1 className="text-9xl md:text-[12rem] font-extralight leading-none mb-6 text-white" style={{ letterSpacing: "-0.06em" }}>
+          <h1 className="text-9xl md:text-[12rem] font-extralight leading-none mb-6 text-black/90" style={{ letterSpacing: "-0.06em" }}>
             KINESIS
           </h1>
           <p className="text-lg md:text-xl font-extralight text-black/70 max-w-xl mx-auto leading-relaxed tracking-wide">
