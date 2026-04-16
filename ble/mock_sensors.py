@@ -16,7 +16,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -82,7 +82,9 @@ class EMSActuator(Protocol):
 # Scripted timeline helper
 # ---------------------------------------------------------------------------
 
-class _ScriptedTimeline[T]:
+T = TypeVar("T")
+
+class _ScriptedTimeline(Generic[T]):
     """Cycles through a list of (duration_s, value) pairs."""
 
     def __init__(self, timeline: list[tuple[float, T]]) -> None:
