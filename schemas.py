@@ -27,11 +27,25 @@ class PostureClass(Enum):
 
 
 class SceneType(Enum):
-    DESK = "desk"
-    MEETING = "meeting"
-    WALKING = "walking"
-    STANDING = "standing"
-    SOCIAL = "social"
+    # Work
+    DESK_WORK = "desk_work"       # seated, facing screen
+    STANDING_DESK = "standing_desk"  # standing, working
+    MEETING = "meeting"           # multi-person meeting room
+    PRESENTING = "presenting"     # standing, presenting/lecturing
+    # Movement
+    WALKING = "walking"           # on foot
+    COMMUTING = "commuting"       # in transit (subway/bus/car)
+    EXERCISE = "exercise"         # gym, sport, workout
+    # Rest & personal
+    RESTING = "resting"           # sofa, lounge, lying back
+    EATING = "eating"             # meal time
+    READING = "reading"           # book or phone reading
+    # Social
+    SOCIAL_CASUAL = "social_casual"   # informal chat
+    SOCIAL_DINING = "social_dining"   # group meal
+    # Outdoor
+    OUTDOOR = "outdoor"           # outside environment
+    # Fallback
     UNKNOWN = "unknown"
 
 

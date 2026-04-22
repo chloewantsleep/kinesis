@@ -33,6 +33,8 @@ from starlette.responses import JSONResponse, HTMLResponse, Response
 
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -647,6 +649,96 @@ async def api_call_tool(request: Request) -> Response:
             return JSONResponse({"error": f"unknown tool: {tool_name}"}, status_code=404)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+
+
+_SCENE_LABELS = [
+    "desk_work", "standing_desk", "meeting", "presenting",
+    "walking", "commuting", "exercise",
+    "resting", "eating", "reading",
+    "social_casual", "social_dining",
+    "outdoor", "unknown",
+]
+
+_CAMERA_CLIENT = None  # reuse across requests
+
+@mcp.custom_route("/camera_frame", methods=["POST"])
+async def camera_frame(request: Request) -> Response:
+    """Receive a JPEG frame from ESP32S3 and run Claude Vision scene recognition."""
+    import anthropic
+    import base64
+
+    global _CAMERA_CLIENT
+    if _CAMERA_CLIENT is None:
+        _CAMERA_CLIENT = anthropic.AsyncAnthropic()
+
+    body = await request.body()
+    if not body:
+        return JSONResponse({"error": "empty body"}, status_code=400)
+
+    image_b64 = base64.standard_b64encode(body).decode("utf-8")
+    labels_str = ", ".join(_SCENE_LABELS)
+
+    try:
+        response = await _CAMERA_CLIENT.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            f"You are an AI glasses scene recognizer. "
+                            f"Choose ONE scene label from: {labels_str}. "
+                            f"Reply in this exact format:\n"
+                            f"SCENE: <label>\n"
+                            f"PEOPLE: <yes/no>\n"
+                            f"DESC: <one sentence description>"
+                        ),
+                    },
+                ],
+            }],
+        )
+        raw = response.content[0].text
+    except Exception as e:
+        logger.error("Claude Vision error: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    # Parse structured response
+    scene_label = "unknown"
+    people_present = False
+    description = raw
+    for line in raw.splitlines():
+        if line.startswith("SCENE:"):
+            val = line.split(":", 1)[1].strip().lower()
+            if val in _SCENE_LABELS:
+                scene_label = val
+        elif line.startswith("PEOPLE:"):
+            people_present = "yes" in line.lower()
+        elif line.startswith("DESC:"):
+            description = line.split(":", 1)[1].strip()
+
+    # Write structured scene to blackboard (same format as context_agent)
+    await _update_and_notify(
+        "glasses",
+        "context",
+        {
+            "scene": scene_label,
+            "confidence": 0.85,
+            "social": people_present,
+            "ambient_noise_db": 0.0,
+            "source": "esp32s3_camera",
+            "description": description,
+            "timestamp": time.time(),
+        },
+        confidence=0.85,
+    )
+    logger.info("[ESP32S3 Camera] %s | people=%s | %s", scene_label, people_present, description)
+    return Response(content=description, media_type="text/plain")
 
 
 @mcp.custom_route("/api/demo_restart", methods=["POST"])

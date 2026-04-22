@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env", override=True)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 import anthropic
 from mcp.client.streamable_http import streamable_http_client
@@ -308,14 +308,17 @@ class BodyAgent:
         frames = self._replay_bridge.get_recent_frames(window_ms=1000)
         return self._frames_to_readings(frames)
 
-    async def _check_demo_reset(self, mcp: MultiMCPSession,
+    async def _check_demo_reset(self, session: ClientSession,
                                 mock_posture: MockPostureSensor,
                                 mock_tension: MockTensionSensor) -> None:
         """Poll state://system/demo_reset — restart timelines when dashboard button is clicked."""
-        data = await mcp.read_resource("state://system/demo_reset")
-        if not data:
+        try:
+            result = await session.read_resource("state://system/demo_reset")
+            content = result.contents[0]
+            data = json.loads(content.text if hasattr(content, "text") else str(content))
+        except Exception:
             return
-        version = data.get("version", 0)
+        version = data.get("data", {}).get("version", 0)
         if version > self._demo_reset_version:
             self._demo_reset_version = version
             if mock_posture._scripted:
@@ -361,7 +364,7 @@ class BodyAgent:
 
         while True:
             # Check for demo restart signal from dashboard
-            await self._check_demo_reset(mcp, mock_posture, mock_tension)
+            await self._check_demo_reset(session, mock_posture, mock_tension)
 
             # Check dashboard toggle
             requested_mode = await self._check_data_source(session)
