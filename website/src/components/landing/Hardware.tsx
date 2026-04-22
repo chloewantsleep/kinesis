@@ -1,4 +1,23 @@
+"use client";
+
 import Image from "next/image";
+
+const SCENE_LABELS = [
+  { label: "desk_work",      desc: "Seated at screen",          color: "bg-amber-200 text-amber-800" },
+  { label: "standing_desk",  desc: "Standing, working",         color: "bg-amber-100 text-amber-700" },
+  { label: "meeting",        desc: "Multi-person room",         color: "bg-blue-200 text-blue-800" },
+  { label: "presenting",     desc: "Standing, presenting",      color: "bg-blue-100 text-blue-700" },
+  { label: "walking",        desc: "On foot",                   color: "bg-green-200 text-green-800" },
+  { label: "commuting",      desc: "In transit",                color: "bg-green-100 text-green-700" },
+  { label: "exercise",       desc: "Gym / sport / workout",     color: "bg-red-200 text-red-800" },
+  { label: "resting",        desc: "Sofa / lounge",             color: "bg-purple-200 text-purple-800" },
+  { label: "eating",         desc: "Meal time",                 color: "bg-orange-200 text-orange-800" },
+  { label: "reading",        desc: "Book or phone",             color: "bg-indigo-200 text-indigo-800" },
+  { label: "social_casual",  desc: "Informal chat",             color: "bg-pink-200 text-pink-800" },
+  { label: "social_dining",  desc: "Group meal",                color: "bg-pink-100 text-pink-700" },
+  { label: "outdoor",        desc: "Outside environment",       color: "bg-teal-200 text-teal-800" },
+  { label: "unknown",        desc: "Cannot be determined",      color: "bg-gray-200 text-gray-600" },
+];
 
 export default function Hardware() {
   return (
@@ -121,6 +140,90 @@ export default function Hardware() {
             </svg>
           </div>
         </div>
+
+        {/* ── Context Hardware ── */}
+        <div className="mt-32 grid md:grid-cols-2 gap-16 items-start">
+          <div>
+            <p className="text-xs font-light tracking-widest text-muted uppercase mb-4">
+              powered by Xiao ESP32S3 + Claude Vision
+            </p>
+            <h2 className="text-5xl md:text-6xl font-extralight tracking-normal leading-tight mb-8">
+              Context Hardware
+            </h2>
+            <p className="text-lg font-light leading-relaxed tracking-wide text-muted mb-8">
+              AI glasses that understand your environment. A camera streams frames
+              to Claude Vision, which classifies your scene in real time — so
+              posture interventions adapt to what you&apos;re actually doing.
+            </p>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-3 h-3 rounded-full bg-sky-300 border border-sky-400" />
+                  <span className="text-sm font-light tracking-wide">OV2640 Camera</span>
+                </div>
+                <p className="text-xs font-light text-muted pl-6">JPEG frames over USB / WiFi</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-3 h-3 rounded-full bg-violet-400" />
+                  <span className="text-sm font-light tracking-wide">Claude Vision</span>
+                </div>
+                <p className="text-xs font-light text-muted pl-6">14-label scene classification</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-3 h-3 rounded-full bg-gray-400" />
+                  <span className="text-sm font-light tracking-wide">Xiao ESP32S3</span>
+                </div>
+                <p className="text-xs font-light text-muted pl-6">On-board capture &amp; streaming</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-3 h-3 rounded-full bg-emerald-400" />
+                  <span className="text-sm font-light tracking-wide">People detection</span>
+                </div>
+                <p className="text-xs font-light text-muted pl-6">Social context awareness</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Scene label grid */}
+          <div className="bg-white rounded-2xl p-8 shadow-sm">
+            <p className="text-xs font-light tracking-widest text-muted uppercase mb-6">
+              Recognised scenes
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {SCENE_LABELS.map(({ label, desc, color }) => (
+                <div key={label} className="group relative">
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-medium tracking-wide cursor-default ${color}`}
+                  >
+                    {label}
+                  </span>
+                  {/* Tooltip */}
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded bg-gray-800 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                    {desc}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-8 rounded-xl bg-gray-50 p-5 border border-gray-100">
+              <p className="text-xs font-light tracking-widest text-muted uppercase mb-3">
+                Example output
+              </p>
+              <div className="flex items-center gap-3 mb-2">
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-medium bg-blue-200 text-blue-800">
+                  meeting
+                </span>
+                <span className="text-xs text-muted font-light">· people: yes</span>
+              </div>
+              <p className="text-sm font-light text-gray-600 italic">
+                &ldquo;A conference room with several people seated around a table, appearing to be in discussion.&rdquo;
+              </p>
+            </div>
+          </div>
+        </div>
+
       </div>
     </section>
   );
