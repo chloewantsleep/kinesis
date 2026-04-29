@@ -281,8 +281,8 @@ async def send_haptic(pattern: str, reason: str, intensity: float = 0.5,
                  "lumbar_alert", "bilateral"
         reason: Why this haptic is being fired
         intensity: Strength 0.0 to 1.0
-        zone: Target vibration zone — "shoulder_l", "shoulder_r", "lumbar_l",
-              "lumbar_r". Leave empty to fire all zones.
+        zone: Target vibration zone — "left_upper", "right_upper", "center_lower".
+              Leave empty to fire all three motors.
     """
     HapticPattern(pattern)
     if zone:
@@ -354,6 +354,31 @@ async def send_ems(channel: str, intensity_ma: float, duration_ms: int,
     return json.dumps({"fired": True, "channel": channel,
                        "intensity_ma": intensity_ma, "duration_ms": duration_ms,
                        "frequency_hz": frequency_hz, "budget_remaining": new_remaining})
+
+
+@mcp.tool()
+async def read_emg(channel: str = "upper_back") -> str:
+    """Read the latest EMG signal from the muscle sensor (written by body agent every 2 s).
+
+    Args:
+        channel: EMG channel — currently only "upper_back"
+
+    Returns JSON with: channel, signal_mv, is_active, available (False if no data yet).
+    """
+    EMGChannel(channel)
+    entry = _state.get(("kinesess", "emg"))
+    if entry is None or entry.stale:
+        return json.dumps({"channel": channel, "signal_mv": 0.0, "is_active": False, "available": False})
+    data = entry.data
+    if data.get("channel") != channel:
+        return json.dumps({"channel": channel, "signal_mv": 0.0, "is_active": False, "available": False})
+    return json.dumps({
+        "channel": channel,
+        "signal_mv": data.get("signal_mv", 0.0),
+        "is_active": data.get("is_active", False),
+        "available": True,
+        "timestamp": entry.timestamp,
+    })
 
 
 @mcp.tool()

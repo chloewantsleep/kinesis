@@ -4,7 +4,7 @@ import json
 import time
 from bisect import bisect_right
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from schemas import GazeReading, SceneContext
 
@@ -25,11 +25,7 @@ def resolve_replay_dataset(dataset_ref: str) -> Path:
     if dataset_ref in REPLAY_PROFILE_PATHS:
         return REPLAY_PROFILE_PATHS[dataset_ref]
 
-    search_paths = [
-        Path(__file__).resolve().parent / candidate,
-        REPLAY_DATASET_DIR / candidate,
-    ]
-    for path in search_paths:
+    for path in [Path(__file__).resolve().parent / candidate, REPLAY_DATASET_DIR / candidate]:
         if path.exists():
             return path
 
@@ -45,19 +41,35 @@ class ReplayDataset:
         self.meta = payload.get("meta", {})
         self.duration_s = float(self.meta.get("duration_s", 0.0))
         self.context_samples: list[dict[str, Any]] = payload.get("context_samples", [])
-        self.imu_frames: list[dict[str, Any]] = payload.get("imu_frames", [])
+
+        # Dual-sensor IMU frames — keyed by sensor name for O(1) lookup
+        raw_imu: list[dict[str, Any]] = payload.get("imu_frames", [])
+        self._imu_by_sensor: dict[str, list[dict[str, Any]]] = {}
+        for frame in raw_imu:
+            sensor = frame.get("sensor", "upper_back")
+            self._imu_by_sensor.setdefault(sensor, []).append(frame)
+        for sensor, frames in self._imu_by_sensor.items():
+            frames.sort(key=lambda f: float(f["offset_s"]))
+        self._imu_offsets_by_sensor: dict[str, list[float]] = {
+            s: [float(f["offset_s"]) for f in frames]
+            for s, frames in self._imu_by_sensor.items()
+        }
+
+        # EMG frames (optional — old datasets without emg_frames still work)
+        self.emg_frames: list[dict[str, Any]] = sorted(
+            payload.get("emg_frames", []), key=lambda f: float(f["offset_s"])
+        )
+        self._emg_offsets: list[float] = [float(f["offset_s"]) for f in self.emg_frames]
 
         if self.duration_s <= 0.0:
             raise ValueError(f"Invalid replay duration in {self.path}")
         if not self.context_samples:
             raise ValueError(f"Replay dataset {self.path} has no context_samples")
-        if not self.imu_frames:
+        if not self._imu_by_sensor:
             raise ValueError(f"Replay dataset {self.path} has no imu_frames")
 
         self.context_samples.sort(key=lambda item: float(item["offset_s"]))
-        self.imu_frames.sort(key=lambda item: float(item["offset_s"]))
         self._context_offsets = [float(item["offset_s"]) for item in self.context_samples]
-        self._imu_offsets = [float(item["offset_s"]) for item in self.imu_frames]
         self._start_time = time.time()
 
     def reset(self) -> None:
@@ -66,34 +78,43 @@ class ReplayDataset:
     def _current_offset(self) -> float:
         return (time.time() - self._start_time) % self.duration_s
 
-    def _sample_at_offset(self, samples: list[dict[str, Any]], offsets: list[float], offset_s: float) -> dict[str, Any]:
-        idx = bisect_right(offsets, offset_s) - 1
-        if idx < 0:
-            idx = len(samples) - 1
-        return samples[idx]
-
-    def get_current_context_sample(self) -> dict[str, Any]:
-        return self._sample_at_offset(self.context_samples, self._context_offsets, self._current_offset())
-
-    def get_window_frames(self, window_ms: int = 1000) -> list[dict[str, Any]]:
+    def _window_frames(
+        self,
+        frames: list[dict[str, Any]],
+        offsets: list[float],
+        window_ms: int,
+    ) -> list[dict[str, Any]]:
         current_offset = self._current_offset()
         window_s = window_ms / 1000.0
         start_offset = current_offset - window_s
 
         selected: list[dict[str, Any]] = []
-        for frame in self.imu_frames:
-            frame_offset = float(frame["offset_s"])
+        for frame in frames:
+            fo = float(frame["offset_s"])
             if start_offset >= 0.0:
-                in_window = start_offset <= frame_offset <= current_offset
+                in_window = start_offset <= fo <= current_offset
             else:
-                in_window = frame_offset >= (self.duration_s + start_offset) or frame_offset <= current_offset
-
+                in_window = fo >= (self.duration_s + start_offset) or fo <= current_offset
             if in_window:
                 frame_copy = dict(frame)
-                frame_copy["host_time"] = time.time() - (current_offset - frame_offset)
+                frame_copy["host_time"] = time.time() - (current_offset - fo)
                 selected.append(frame_copy)
-
         return selected
+
+    def get_window_frames(self, sensor: str = "upper_back", window_ms: int = 1000) -> list[dict[str, Any]]:
+        frames = self._imu_by_sensor.get(sensor, [])
+        offsets = self._imu_offsets_by_sensor.get(sensor, [])
+        return self._window_frames(frames, offsets, window_ms)
+
+    def get_window_emg(self, window_ms: int = 2000) -> list[dict[str, Any]]:
+        return self._window_frames(self.emg_frames, self._emg_offsets, window_ms)
+
+    def get_current_context_sample(self) -> dict[str, Any]:
+        offset_s = self._current_offset()
+        idx = bisect_right(self._context_offsets, offset_s) - 1
+        if idx < 0:
+            idx = len(self.context_samples) - 1
+        return self.context_samples[idx]
 
 
 class ReplayContextSource:
@@ -135,6 +156,11 @@ class ReplayContextSource:
 
 
 class ReplayIMUBridge:
+    """
+    Replay equivalent of ESP32Bridge.
+    Exposes the same interface so body_agent.py needs no branching.
+    """
+
     def __init__(self, dataset_path: str) -> None:
         self._dataset = ReplayDataset(dataset_path)
         self.dataset_ref = dataset_path
@@ -162,13 +188,37 @@ class ReplayIMUBridge:
             self._dataset.reset()
         return True
 
-    def get_recent_frames(self, window_ms: int = 1000) -> list[dict[str, Any]]:
+    # ------------------------------------------------------------------
+    # Data accessors — match ESP32Bridge interface exactly
+    # ------------------------------------------------------------------
+
+    def get_recent_frames(self, sensor: str = "upper_back", window_ms: int = 1000) -> list[dict[str, Any]]:
         if not self._running:
             self.start_streaming(reset=False)
-        return self._dataset.get_window_frames(window_ms=window_ms)
+        return self._dataset.get_window_frames(sensor=sensor, window_ms=window_ms)
 
-    def send_vibration_command(self, intensity: float = 0.5, duration_ms: int = 300, pattern: str = "single_pulse") -> None:
-        print(f"[REPLAY VIBRATION] intensity={intensity:.2f}, duration={duration_ms}ms, pattern={pattern}")
+    def get_recent_emg(self, window_ms: int = 2000) -> list[dict[str, Any]]:
+        if not self._running:
+            self.start_streaming(reset=False)
+        return self._dataset.get_window_emg(window_ms=window_ms)
 
-    def stop_vibration(self) -> None:
-        print("[REPLAY VIBRATION] stop")
+    # ------------------------------------------------------------------
+    # Commands — no-op with log (match ESP32Bridge interface)
+    # ------------------------------------------------------------------
+
+    def send_vibration_command(
+        self,
+        motor: Optional[str] = None,
+        intensity: float = 0.5,
+        duration_ms: int = 300,
+        pattern: str = "single_pulse",
+    ) -> None:
+        target = motor or "all"
+        print(f"[REPLAY VIBRATION] motor={target} intensity={intensity:.2f} duration={duration_ms}ms pattern={pattern}")
+
+    def stop_vibration(self, motor: Optional[str] = None) -> None:
+        target = motor or "all"
+        print(f"[REPLAY VIBRATION] stop motor={target}")
+
+    def request_emg_window(self, duration_ms: int = 5000) -> None:
+        print(f"[REPLAY EMG] high-rate window {duration_ms} ms (no-op in replay mode)")

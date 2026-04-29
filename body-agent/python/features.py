@@ -1,91 +1,119 @@
-# 这里把原始 IMU 时间窗变成 agent 容易使用的 posture features。
-# 先用最简单的 trunk tilt 估计和 motion level 就够了。
-
+# 双 IMU 特征提取：分别处理 upper_back / lower_back 帧，
+# 并计算差分指标（脊柱弯曲度、左右不对称）。
 import math
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 
-def estimate_tilt_deg(ax: float, ay: float, az: float) -> float:
-    """
-    一个非常简单的基于加速度重力方向的倾角估计。
-    这里只是 MVP 近似，不追求严格姿态解算。
-    """
+# ---------------------------------------------------------------------------
+# Per-frame angle estimators (same as before, gravity-vector approximation)
+# ---------------------------------------------------------------------------
+
+def _pitch_deg(ax: float, ay: float, az: float) -> float:
+    """Forward/backward tilt from gravity direction. Positive = forward lean."""
     denom = math.sqrt(ay * ay + az * az) + 1e-6
-    tilt_rad = math.atan2(ax, denom)
-    return math.degrees(tilt_rad)
+    return math.degrees(math.atan2(ax, denom))
 
 
-def estimate_lateral_tilt_deg(ax: float, ay: float, az: float) -> float:
-    """Approximate left/right lean from gravity direction."""
+def _roll_deg(ax: float, ay: float, az: float) -> float:
+    """Left/right lean from gravity direction. Positive = right lean."""
     denom = math.sqrt(ax * ax + az * az) + 1e-6
-    tilt_rad = math.atan2(ay, denom)
-    return math.degrees(tilt_rad)
+    return math.degrees(math.atan2(ay, denom))
 
 
-def compute_motion_level(frames: List[Dict]) -> float:
+def _motion_level(frames: List[Dict]) -> float:
     if len(frames) < 2:
         return 0.0
-
-    total = 0.0
-    count = 0
-    for frame in frames:
-        gx = frame.get("gx", 0.0)
-        gy = frame.get("gy", 0.0)
-        gz = frame.get("gz", 0.0)
-        total += abs(gx) + abs(gy) + abs(gz)
-        count += 1
-
-    return total / max(count, 1)
+    total = sum(abs(f.get("gx", 0.0)) + abs(f.get("gy", 0.0)) + abs(f.get("gz", 0.0))
+                for f in frames)
+    return total / len(frames)
 
 
-def compute_features(frames: List[Dict], baseline_tilt_deg: float = 0.0) -> Dict:
+# ---------------------------------------------------------------------------
+# Per-IMU summary
+# ---------------------------------------------------------------------------
+
+def _summarise_imu(frames: List[Dict]) -> Optional[Dict]:
+    """Return mean pitch/roll and motion for one sensor's frame window."""
     if not frames:
+        return None
+    pitches = [_pitch_deg(f.get("ax", 0), f.get("ay", 0), f.get("az", 0)) for f in frames]
+    rolls   = [_roll_deg (f.get("ax", 0), f.get("ay", 0), f.get("az", 0)) for f in frames]
+    motion  = _motion_level(frames)
+    return {
+        "mean_pitch": sum(pitches) / len(pitches),
+        "mean_roll":  sum(rolls)   / len(rolls),
+        "last_pitch": pitches[-1],
+        "last_roll":  rolls[-1],
+        "motion":     motion,
+        "n_frames":   len(frames),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def compute_features(
+    upper_frames: List[Dict],
+    lower_frames: List[Dict],
+    baseline_upper_pitch: float = 0.0,
+    baseline_lower_pitch: float = 0.0,
+) -> Dict:
+    """
+    Compute posture features from dual-IMU frame windows.
+
+    Returns a dict with:
+      ok                  — False if no data from either IMU
+      upper / lower       — per-IMU summaries (or None)
+      deviation_deg       — upper-back forward deviation from baseline
+      lateral_dev_deg     — upper-back lateral deviation
+      flexion_deg         — upper.pitch - lower.pitch  (hunching indicator)
+      lateral_asym_deg    — |upper.roll - lower.roll|  (asymmetric lean)
+      stillness_score     — 0 (moving) … 1 (still), averaged across IMUs
+      num_frames          — total frames used
+    """
+    upper = _summarise_imu(upper_frames)
+    lower = _summarise_imu(lower_frames)
+
+    if upper is None and lower is None:
         return {
             "ok": False,
-            "tilt_deg": 0.0,
-            "lateral_tilt_deg": 0.0,
-            "mean_tilt_deg": 0.0,
-            "mean_lateral_tilt_deg": 0.0,
-            "deviation_deg": 0.0,
-            "lateral_deviation_deg": 0.0,
-            "motion_level": 0.0,
-            "stillness_score": 0.0,
-            "num_frames": 0,
+            "upper": None, "lower": None,
+            "deviation_deg": 0.0, "lateral_dev_deg": 0.0,
+            "flexion_deg": 0.0, "lateral_asym_deg": 0.0,
+            "stillness_score": 0.0, "num_frames": 0,
         }
 
-    tilts = [
-        estimate_tilt_deg(
-            frame.get("ax", 0.0),
-            frame.get("ay", 0.0),
-            frame.get("az", 0.0),
-        )
-        for frame in frames
-    ]
-    lateral_tilts = [
-        estimate_lateral_tilt_deg(
-            frame.get("ax", 0.0),
-            frame.get("ay", 0.0),
-            frame.get("az", 0.0),
-        )
-        for frame in frames
-    ]
+    # Prefer upper for primary posture signal; fall back to lower if upper missing
+    primary = upper if upper is not None else lower
+    secondary = lower if upper is not None else None
 
-    mean_tilt = sum(tilts) / len(tilts)
-    mean_lateral_tilt = sum(lateral_tilts) / len(lateral_tilts)
-    motion_level = compute_motion_level(frames)
+    deviation_deg   = primary["mean_pitch"] - baseline_upper_pitch
+    lateral_dev_deg = primary["mean_roll"]
 
-    # 这里简单把低运动视为更静止
-    stillness_score = max(0.0, 1.0 - min(1.0, motion_level * 5.0))
+    # Differential spinal metrics — only meaningful when both IMUs are present
+    if upper is not None and lower is not None:
+        flexion_deg     = upper["mean_pitch"] - lower["mean_pitch"]
+        lateral_asym_deg = abs(upper["mean_roll"] - lower["mean_roll"])
+    else:
+        flexion_deg      = 0.0
+        lateral_asym_deg = 0.0
+
+    # Stillness: average across available IMUs
+    motion_vals = [s["motion"] for s in (upper, lower) if s is not None]
+    avg_motion = sum(motion_vals) / len(motion_vals)
+    stillness_score = max(0.0, 1.0 - min(1.0, avg_motion * 5.0))
+
+    total_frames = sum(s["n_frames"] for s in (upper, lower) if s is not None)
 
     return {
         "ok": True,
-        "tilt_deg": tilts[-1],
-        "lateral_tilt_deg": lateral_tilts[-1],
-        "mean_tilt_deg": mean_tilt,
-        "mean_lateral_tilt_deg": mean_lateral_tilt,
-        "deviation_deg": mean_tilt - baseline_tilt_deg,
-        "lateral_deviation_deg": mean_lateral_tilt,
-        "motion_level": motion_level,
-        "stillness_score": stillness_score,
-        "num_frames": len(frames),
+        "upper": upper,
+        "lower": lower,
+        "deviation_deg":    deviation_deg,
+        "lateral_dev_deg":  lateral_dev_deg,
+        "flexion_deg":      flexion_deg,
+        "lateral_asym_deg": lateral_asym_deg,
+        "stillness_score":  stillness_score,
+        "num_frames":       total_frames,
     }

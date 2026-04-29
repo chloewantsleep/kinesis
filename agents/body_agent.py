@@ -34,7 +34,7 @@ from mcp.client.session import ClientSession
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from schemas import PostureClass, PostureReading, TensionReading
+from schemas import PostureClass, PostureReading, TensionReading, IMULocation, IMUReading
 from ble.mock_sensors import MockPostureSensor, MockTensionSensor
 from mock_replay import ReplayIMUBridge
 
@@ -98,9 +98,9 @@ DEFAULT_SYSTEM_PROMPT = """\
 You are the Kinesess body sensor agent — a posture coaching assistant embedded in a wearable exoskeleton.
 
 ## Hardware
-- 2 IMU sensors: upper_back (T3-T6) and lower_back (L2-L4)
-- 4 vibration motors: shoulder_l, shoulder_r, lumbar_l, lumbar_r
-- 1 EMG sensor: upper_back (detects active rhomboid/trapezius contraction)
+- 2 IMU sensors: upper_back (T3-T6, pin I2C 0x68) and lower_back (L2-L4, pin I2C 0x69)
+- 3 vibration motors: left_upper (pin 18), right_upper (pin 19), center_lower (pin 23)
+- 1 EMG sensor: upper_back rhomboid/trapezius area (pin 34)
 - 3 EMS channels: rhomboid_l, rhomboid_r, lumbar_erector
 
 ## Your Role
@@ -116,10 +116,10 @@ Example: ask_agent(from_agent="kinesess", to_agent="glasses", question="User has
 ### Level 1 — Vibration (haptic)
 Use for first intervention or when posture is mildly bad.
 - send_haptic with zone targeting for directional feedback:
-  - lateral lean left  → zone="shoulder_r" + pattern="right_nudge"
-  - lateral lean right → zone="shoulder_l" + pattern="left_nudge"
-  - hunching/slouching → pattern="bilateral" (both shoulders)
-  - lower back issue   → zone="lumbar_l" or "lumbar_r", pattern="lumbar_alert"
+  - lateral lean left  → zone="right_upper" + pattern="right_nudge"
+  - lateral lean right → zone="left_upper"  + pattern="left_nudge"
+  - hunching/slouching → pattern="bilateral" (left_upper + right_upper)
+  - lower back issue   → zone="center_lower", pattern="lumbar_alert"
 
 ### Level 2 — EMG check + EMS (escalation only)
 Use ONLY when: haptic was ignored 2+ times this session AND deviation > 20° AND duration > 90s.
@@ -213,7 +213,8 @@ class BodyAgent:
         self._replay_profile = None
         self._esp32 = None
         self._replay_bridge = ReplayIMUBridge(replay_dataset) if replay_dataset else None
-        self._baseline_tilt: float = 0.0
+        self._baseline_upper_pitch: float = 0.0
+        self._baseline_lower_pitch: float = 0.0
         self._baseline_calibrated: bool = False
 
     async def run(self) -> None:
@@ -255,7 +256,8 @@ class BodyAgent:
             self._esp32 = None
 
     def _reset_baseline(self) -> None:
-        self._baseline_tilt = 0.0
+        self._baseline_upper_pitch = 0.0
+        self._baseline_lower_pitch = 0.0
         self._baseline_calibrated = False
 
     async def _check_replay_profile(self, session: ClientSession) -> str | None:
@@ -267,10 +269,16 @@ class BodyAgent:
         except Exception:
             return None
 
-    def _frames_to_readings(self, frames: list[dict]) -> tuple[PostureReading, TensionReading, dict]:
+    def _dual_imu_to_readings(
+        self, upper_frames: list[dict], lower_frames: list[dict]
+    ) -> tuple[PostureReading, TensionReading, dict]:
         from features import compute_features
 
-        feats = compute_features(frames, baseline_tilt_deg=self._baseline_tilt)
+        feats = compute_features(
+            upper_frames, lower_frames,
+            baseline_upper_pitch=self._baseline_upper_pitch,
+            baseline_lower_pitch=self._baseline_lower_pitch,
+        )
 
         if not feats["ok"]:
             return (
@@ -279,39 +287,61 @@ class BodyAgent:
                 feats,
             )
 
-        # Calibrate baseline from first good window
+        # Calibrate baselines from first good window (both IMUs must have data)
         if not self._baseline_calibrated and feats["num_frames"] > 5:
-            self._baseline_tilt = feats["mean_tilt_deg"]
+            if feats["upper"]:
+                self._baseline_upper_pitch = feats["upper"]["mean_pitch"]
+            if feats["lower"]:
+                self._baseline_lower_pitch = feats["lower"]["mean_pitch"]
             self._baseline_calibrated = True
             feats["deviation_deg"] = 0.0
-            logger.info("Baseline calibrated: %.1f°", self._baseline_tilt)
+            logger.info(
+                "Baseline calibrated — upper: %.1f°  lower: %.1f°",
+                self._baseline_upper_pitch, self._baseline_lower_pitch,
+            )
 
         forward_dev = feats["deviation_deg"]
-        lateral_dev = feats.get("lateral_deviation_deg", 0.0)
+        lateral_dev = feats.get("lateral_dev_deg", 0.0)
         posture_cls, deviation_scalar = _classify_posture(forward_dev, lateral_dev)
         confidence = min(1.0, feats["num_frames"] / 20.0)
+
+        # Build per-IMU readings for PostureReading
+        def _imu_reading(summary: dict | None, location: IMULocation) -> IMUReading | None:
+            if summary is None:
+                return None
+            return IMUReading(
+                location=location,
+                pitch_deg=summary["mean_pitch"],
+                roll_deg=summary["mean_roll"],
+                yaw_deg=0.0,  # not estimated from accel alone
+                confidence=min(1.0, summary["n_frames"] / 10.0),
+            )
 
         posture = PostureReading(
             classification=posture_cls,
             confidence=confidence,
             duration_s=0.0,  # tracked by the sensor loop
             deviation_degrees=deviation_scalar,
+            imu_upper=_imu_reading(feats.get("upper"), IMULocation.UPPER_BACK),
+            imu_lower=_imu_reading(feats.get("lower"), IMULocation.LOWER_BACK),
+            lateral_asymmetry_deg=feats.get("lateral_asym_deg", 0.0),
+            flexion_deg=feats.get("flexion_deg", 0.0),
         )
 
-        # Stillness inversely maps to tension (moving = less tense)
         tension_level = max(0.0, 1.0 - feats["stillness_score"])
         tension = TensionReading(level=tension_level, zone="upper_back")
 
         return posture, tension, feats
 
     def _esp32_to_readings(self) -> tuple[PostureReading, TensionReading, dict]:
-        """Read IMU frames from ESP32, compute features, return (posture, tension, raw)."""
-        frames = self._esp32.get_recent_frames(window_ms=1000)
-        return self._frames_to_readings(frames)
+        upper = self._esp32.get_recent_frames(sensor="upper_back", window_ms=1000)
+        lower = self._esp32.get_recent_frames(sensor="lower_back", window_ms=1000)
+        return self._dual_imu_to_readings(upper, lower)
 
     def _replay_to_readings(self) -> tuple[PostureReading, TensionReading, dict]:
+        # Replay dataset has no sensor label — treat all frames as upper_back
         frames = self._replay_bridge.get_recent_frames(window_ms=1000)
-        return self._frames_to_readings(frames)
+        return self._dual_imu_to_readings(frames, [])
 
     async def _check_demo_reset(self, mcp: MultiMCPSession,
                                 mock_posture: MockPostureSensor,
@@ -414,6 +444,18 @@ class BodyAgent:
             if imu_feats is not None:
                 await self._safe_update(session, "sensor_log", imu_feats, posture.confidence)
 
+            # Write latest EMG snapshot to blackboard whenever the bridge is live
+            if self._esp32 is not None:
+                emg_frames = self._esp32.get_recent_emg(window_ms=2000)
+                if emg_frames:
+                    mvs = [f["mv"] for f in emg_frames]
+                    mean_mv = sum(mvs) / len(mvs)
+                    await self._safe_update(session, "emg", {
+                        "channel": "upper_back",
+                        "signal_mv": round(mean_mv, 2),
+                        "is_active": mean_mv > 100.0,  # empirical contraction threshold
+                    }, 0.8)
+
             # Track bad posture duration
             is_bad = posture.classification not in (PostureClass.GOOD, PostureClass.UNKNOWN)
             now = time.time()
@@ -449,6 +491,29 @@ class BodyAgent:
                     self._local.llm_trigger.set()
 
             await asyncio.sleep(SENSOR_INTERVAL_S)
+
+    def _fire_haptic_on_bridge(self, tool_args: dict) -> None:
+        """Translate a send_haptic tool call into a real bridge vibration command."""
+        bridge = self._esp32
+        if bridge is None:
+            return
+
+        zone     = tool_args.get("zone", "")
+        pattern  = tool_args.get("pattern", "gentle")
+        intensity = float(tool_args.get("intensity", 0.5))
+        duration_ms = 400
+
+        if pattern == "bilateral":
+            bridge.send_vibration_command(motor="left_upper",  intensity=intensity, duration_ms=duration_ms)
+            bridge.send_vibration_command(motor="right_upper", intensity=intensity, duration_ms=duration_ms)
+        elif zone in {"left_upper", "right_upper", "center_lower"}:
+            bridge.send_vibration_command(motor=zone, intensity=intensity, duration_ms=duration_ms)
+        else:
+            # Zone not specified or unrecognised — fire all three
+            bridge.send_vibration_command(motor=None, intensity=intensity, duration_ms=duration_ms)
+
+        # Trigger high-rate EMG sampling for 5 s post-intervention
+        bridge.request_emg_window(duration_ms=5000)
 
     async def _safe_update(self, session: ClientSession, key: str, data: dict, confidence: float) -> None:
         try:
@@ -504,6 +569,7 @@ class BodyAgent:
                             })
                             if block.name == "send_haptic":
                                 self._local.last_haptic_time = time.time()
+                                self._fire_haptic_on_bridge(block.input)
 
                     messages.append({"role": "assistant", "content": response.content})
                     messages.append({"role": "user", "content": tool_results})
