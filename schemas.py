@@ -49,9 +49,10 @@ class IMULocation(str, Enum):
 
 
 class VibrationZone(str, Enum):
-    LEFT_UPPER   = "left_upper"    # motor pin 18 — left scapular / upper-back
-    RIGHT_UPPER  = "right_upper"   # motor pin 19 — right scapular / upper-back
-    CENTER_LOWER = "center_lower"  # motor pin 23 — lower-back centre
+    LEFT_SHOULDER  = "left_shoulder"   # motor pin 18 — left shoulder / scapular
+    RIGHT_SHOULDER = "right_shoulder"  # motor pin 19 — right shoulder / scapular
+    UPPER_SPINE    = "upper_spine"     # motor pin 23 — thoracic spine (T3-T6)
+    LOWER_SPINE    = "lower_spine"     # motor pin  5 — lumbar spine (L2-L4)
 
 
 class EMGChannel(str, Enum):
@@ -68,10 +69,11 @@ class HapticPattern(str, Enum):
     GENTLE       = "gentle"
     FIRM         = "firm"
     PULSE        = "pulse"
-    LEFT_NUDGE   = "left_nudge"    # right_upper motor only (nudge user leftward)
-    RIGHT_NUDGE  = "right_nudge"   # left_upper motor only (nudge user rightward)
-    LUMBAR_ALERT = "lumbar_alert"  # center_lower motor only
-    BILATERAL    = "bilateral"     # left_upper + right_upper simultaneously
+    LEFT_NUDGE   = "left_nudge"    # right_shoulder only — cue user to lean left
+    RIGHT_NUDGE  = "right_nudge"   # left_shoulder only  — cue user to lean right
+    LUMBAR_ALERT = "lumbar_alert"  # lower_spine only
+    BILATERAL    = "bilateral"     # left_shoulder + right_shoulder simultaneously
+    SPINE_ALERT  = "spine_alert"   # upper_spine + lower_spine simultaneously
 
 
 class InterventionMode(str, Enum):

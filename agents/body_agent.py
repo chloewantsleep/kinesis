@@ -99,7 +99,7 @@ You are the Kinesess body sensor agent — a posture coaching assistant embedded
 
 ## Hardware
 - 2 IMU sensors: upper_back (T3-T6, pin I2C 0x68) and lower_back (L2-L4, pin I2C 0x69)
-- 3 vibration motors: left_upper (pin 18), right_upper (pin 19), center_lower (pin 23)
+- 4 vibration motors: left_shoulder (pin 18), right_shoulder (pin 19), upper_spine (pin 23), lower_spine (pin 5)
 - 1 EMG sensor: upper_back rhomboid/trapezius area (pin 34)
 - 3 EMS channels: rhomboid_l, rhomboid_r, lumbar_erector
 
@@ -116,10 +116,12 @@ Example: ask_agent(from_agent="kinesess", to_agent="glasses", question="User has
 ### Level 1 — Vibration (haptic)
 Use for first intervention or when posture is mildly bad.
 - send_haptic with zone targeting for directional feedback:
-  - lateral lean left  → zone="right_upper" + pattern="right_nudge"
-  - lateral lean right → zone="left_upper"  + pattern="left_nudge"
-  - hunching/slouching → pattern="bilateral" (left_upper + right_upper)
-  - lower back issue   → zone="center_lower", pattern="lumbar_alert"
+  - lateral lean left       → zone="right_shoulder" + pattern="right_nudge"
+  - lateral lean right      → zone="left_shoulder"  + pattern="left_nudge"
+  - hunching/slouching      → pattern="bilateral" (left_shoulder + right_shoulder)
+  - thoracic spine issue    → zone="upper_spine",   pattern="pulse"
+  - lumbar / lower back     → zone="lower_spine",   pattern="lumbar_alert"
+  - full spinal involvement → pattern="spine_alert" (upper_spine + lower_spine)
 
 ### Level 2 — EMG check + EMS (escalation only)
 Use ONLY when: haptic was ignored 2+ times this session AND deviation > 20° AND duration > 90s.
@@ -504,12 +506,15 @@ class BodyAgent:
         duration_ms = 400
 
         if pattern == "bilateral":
-            bridge.send_vibration_command(motor="left_upper",  intensity=intensity, duration_ms=duration_ms)
-            bridge.send_vibration_command(motor="right_upper", intensity=intensity, duration_ms=duration_ms)
-        elif zone in {"left_upper", "right_upper", "center_lower"}:
+            bridge.send_vibration_command(motor="left_shoulder",  intensity=intensity, duration_ms=duration_ms)
+            bridge.send_vibration_command(motor="right_shoulder", intensity=intensity, duration_ms=duration_ms)
+        elif pattern == "spine_alert":
+            bridge.send_vibration_command(motor="upper_spine", intensity=intensity, duration_ms=duration_ms)
+            bridge.send_vibration_command(motor="lower_spine", intensity=intensity, duration_ms=duration_ms)
+        elif zone in {"left_shoulder", "right_shoulder", "upper_spine", "lower_spine"}:
             bridge.send_vibration_command(motor=zone, intensity=intensity, duration_ms=duration_ms)
         else:
-            # Zone not specified or unrecognised — fire all three
+            # Zone not specified or unrecognised — fire all four
             bridge.send_vibration_command(motor=None, intensity=intensity, duration_ms=duration_ms)
 
         # Trigger high-rate EMG sampling for 5 s post-intervention

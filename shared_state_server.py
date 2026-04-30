@@ -278,11 +278,11 @@ async def send_haptic(pattern: str, reason: str, intensity: float = 0.5,
 
     Args:
         pattern: One of "gentle", "firm", "pulse", "left_nudge", "right_nudge",
-                 "lumbar_alert", "bilateral"
+                 "lumbar_alert", "bilateral", "spine_alert"
         reason: Why this haptic is being fired
         intensity: Strength 0.0 to 1.0
-        zone: Target vibration zone — "left_upper", "right_upper", "center_lower".
-              Leave empty to fire all three motors.
+        zone: Target vibration zone — "left_shoulder", "right_shoulder", "upper_spine", "lower_spine".
+              Leave empty to fire all four motors.
     """
     HapticPattern(pattern)
     if zone:

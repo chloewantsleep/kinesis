@@ -15,7 +15,7 @@ except ImportError:
     serial = None
 
 # Valid motor names — must match firmware MotorState.name values
-MOTOR_NAMES = {"left_upper", "right_upper", "center_lower"}
+MOTOR_NAMES = {"left_shoulder", "right_shoulder", "upper_spine", "lower_spine"}
 
 
 class ESP32Bridge:
@@ -109,7 +109,7 @@ class ESP32Bridge:
     ) -> None:
         """
         Fire a vibration motor.
-        motor: "left_upper" | "right_upper" | "lower_center" | None (= all three)
+        motor: "left_shoulder" | "right_shoulder" | "upper_spine" | "lower_spine" | None (= all four)
         """
         if motor is not None and motor not in MOTOR_NAMES:
             print(f"[Bridge] unknown motor '{motor}' — ignoring")
