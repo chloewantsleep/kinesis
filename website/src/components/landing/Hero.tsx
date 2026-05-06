@@ -18,7 +18,13 @@ export default function Hero() {
           <p className="text-lg md:text-xl font-extralight text-black/70 max-w-xl mx-auto leading-relaxed tracking-wide">
             A multi-agent embodied AI system for adaptive posture correction
           </p>
-          <div className="mt-12">
+          <div className="mt-12 flex items-center justify-center gap-3 flex-wrap">
+            <a
+              href="/login"
+              className="inline-block px-8 py-3 bg-black text-white rounded-full text-sm font-light tracking-wider hover:bg-foreground transition-all"
+            >
+              Create your agent
+            </a>
             <a
               href="#demo"
               className="inline-block px-8 py-3 border border-black/30 text-black rounded-full text-sm font-light tracking-wider hover:bg-white hover:text-foreground transition-all"

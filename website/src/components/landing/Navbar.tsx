@@ -8,16 +8,35 @@ const links = [
   { label: "Architecture", href: "#architecture" },
   { label: "Hardware", href: "#hardware" },
   { label: "Demo", href: "#demo" },
+  { label: "Try", href: "#try" },
 ];
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/session")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        setAuthed(Boolean(d?.user));
+      })
+      .catch(() => setAuthed(false));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const ctaHref = authed ? "/home" : "/login";
+  const ctaLabel = authed ? "Open app" : "Create your agent";
 
   return (
     <nav
@@ -50,7 +69,27 @@ export default function Navbar() {
               {l.label}
             </a>
           ))}
+          <a
+            href={ctaHref}
+            className={`text-xs font-light tracking-wider px-4 py-1.5 rounded-full border transition-colors ${
+              scrolled
+                ? "border-foreground/20 text-foreground hover:bg-foreground hover:text-white"
+                : "border-black/30 text-black hover:bg-black hover:text-white"
+            }`}
+          >
+            {ctaLabel}
+          </a>
         </div>
+        <a
+          href={ctaHref}
+          className={`md:hidden text-xs font-light tracking-wider px-3 py-1 rounded-full border transition-colors ${
+            scrolled
+              ? "border-foreground/20 text-foreground"
+              : "border-black/30 text-black"
+          }`}
+        >
+          {authed ? "Open" : "Login"}
+        </a>
       </div>
     </nav>
   );
